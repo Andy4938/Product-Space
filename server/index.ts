@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { connect } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { createApp } from './app.js';
 import { createNotifier } from './notify.js';
@@ -10,6 +11,19 @@ const distDir = resolve(process.cwd(), 'dist');
 const port = Number(process.env.PORT ?? '3001');
 if (!Number.isInteger(port) || port < 0 || port > 65535) {
   throw new Error('PORT must be an integer from 0 to 65535.');
+}
+
+// On Windows a second server can appear to start on a busy port while the first one keeps
+// receiving every request, so its printed access code never works. Refuse to start instead.
+const portBusy = await new Promise<boolean>((resolvePort) => {
+  const probe = connect({ port, host: '127.0.0.1' });
+  probe.once('connect', () => { probe.destroy(); resolvePort(true); });
+  probe.once('error', () => resolvePort(false));
+});
+if (portBusy) {
+  console.error(`Port ${port} is already in use, probably by another PhanTomSignal server.`);
+  console.error('Stop that server first (close its terminal or press Ctrl+C there), or start this one with a different PORT.');
+  process.exit(1);
 }
 
 const configuredCode = process.env.DISPATCH_ACCESS_CODE;
