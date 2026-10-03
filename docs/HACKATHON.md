@@ -1,4 +1,4 @@
-# GhostSignal hackathon guide
+# PhanTomSignal hackathon guide
 
 “Emergency buttons protect a location. Our system protects the person as they move.”
 
@@ -6,7 +6,7 @@
 
 Build for the uncertain moment when someone feels unsafe while walking: start a temporary session, share it with a trusted person, keep moving, and silently request help if needed. The guardian needs the current location and its freshness, not just the starting point.
 
-Campus emergency phones only help if you can reach one. GhostSignal moves the help button to the student's phone. A help signal opens an incident on a Campus Safety console with live location, and notifies an optional guardian by push notification and text. The console is a prototype and is not connected to UIUC Police, 911, or Illini-Alert.
+Campus emergency phones only help if you can reach one. PhanTomSignal moves the help button to the student's phone. A help signal opens an incident on a Campus Safety console with live location, and notifies an optional guardian by push notification and text. The console is a prototype and is not connected to UIUC Police, 911, or Illini-Alert.
 
 ## Two-minute demonstration
 

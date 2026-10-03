@@ -19,7 +19,7 @@ const notifier = createNotifier({ vapidKeyPath: join(dirname(dbPath), 'vapid-key
 const store = new SessionStore(dbPath, Date.now, notifier);
 const app = createApp(store, { staticDir: existsSync(distDir) ? distDir : undefined, dispatchCode });
 const server = app.listen(port, () => {
-  console.log(`GhostSignal server listening on http://localhost:${port}`);
+  console.log(`PhanTomSignal server listening on http://localhost:${port}`);
   console.log(configuredCode
     ? 'Campus Safety console: /dispatch (access code from DISPATCH_ACCESS_CODE)'
     : `Campus Safety console: /dispatch  access code: ${dispatchCode}  (set DISPATCH_ACCESS_CODE to keep it fixed)`);

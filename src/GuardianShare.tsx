@@ -57,7 +57,7 @@ function GuardianShareContent({ origin, sessionId, guardianToken }: Omit<Guardia
       {typeof navigator !== 'undefined' && typeof navigator.share === 'function' && <button type="button" className="guardian-share-secondary" onClick={() => void share()}>{t('Share with your phone')}</button>}
     </div>
     {(copyStatus || shareStatus) && <p className="guardian-share-feedback" role="status">{t(copyStatus || shareStatus)}</p>}
-    {originKind === 'loopback' && <p className="guardian-share-warning" role="note">{t('This localhost link works only on this device. Open GhostSignal from a public HTTPS address before sharing with another phone.')}</p>}
+    {originKind === 'loopback' && <p className="guardian-share-warning" role="note">{t('This localhost link works only on this device. Open PhanTomSignal from a public HTTPS address before sharing with another phone.')}</p>}
     {originKind === 'private-network' && <p className="guardian-share-warning" role="note">{t('On a private network, both phones need the same Wi-Fi. Live GPS on the walker’s phone also needs HTTPS.')}</p>}
     {originKind === 'other' && <p className="guardian-share-warning" role="note">{t('Live GPS on the walker’s phone needs HTTPS.')}</p>}
     {originKind !== 'loopback' && <div className="guardian-share-qr">

@@ -449,7 +449,7 @@ export class SessionStore {
     if (notification !== null) {
       const { reference, timestamp } = notification;
       this.notifyGuardian(row!, {
-        sms: `GhostSignal: the walker sent a SILENT help signal. Campus Safety is notified (${reference}). Please do not call or text them; it could alert someone nearby. ${lastLocationText(row!.location_json, timestamp)}`,
+        sms: `PhanTomSignal: the walker sent a SILENT help signal. Campus Safety is notified (${reference}). Please do not call or text them; it could alert someone nearby. ${lastLocationText(row!.location_json, timestamp)}`,
         push: { title: 'Silent help signal', body: 'Campus Safety is notified. Don’t call or text the walker; it could alert someone nearby. Tap to follow their location.', tag: 'help', urgent: true },
       });
     }
@@ -472,7 +472,7 @@ export class SessionStore {
         this.addEvent(open.id, 'walker_cancelled', 'Walker cancelled the signal. A cancellation can be coerced; verify in person before closing.', timestamp);
       }
       this.notifyGuardian(row, {
-        sms: 'GhostSignal: the walker cancelled their help signal. Campus Safety will still verify they are okay. Please keep not calling them for now.',
+        sms: 'PhanTomSignal: the walker cancelled their help signal. Campus Safety will still verify they are okay. Please keep not calling them for now.',
         push: { title: 'Signal cancelled', body: 'The walker cancelled their signal. Campus Safety will still check on them in person.', tag: 'help', urgent: false },
       });
     }
@@ -706,7 +706,7 @@ export class SessionStore {
   private notifyIncidentChange(incident: IncidentRow, title: string, body: string): void {
     const session = this.database.prepare('SELECT * FROM sessions WHERE id = ?').get(incident.session_id) as unknown as SessionRow;
     if (session.status === 'ended') return;
-    this.notifyGuardian(session, { sms: `GhostSignal (${incident.reference}): ${title}. ${body}`, push: { title, body, tag: 'dispatch', urgent: false } });
+    this.notifyGuardian(session, { sms: `PhanTomSignal (${incident.reference}): ${title}. ${body}`, push: { title, body, tag: 'dispatch', urgent: false } });
   }
 
   private notifyGuardian(row: SessionRow, message: { sms: string; push: Omit<PushPayload, 'sessionId'> }): void {

@@ -33,7 +33,7 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 }
 
 export function Brand() {
-  return <div className="brand"><span className="brand-mark"><span /></span><span>Ghost<span className="brand-light">Signal</span></span></div>;
+  return <div className="brand"><span className="brand-mark"><span /></span><span>PhanTom<span className="brand-light">Signal</span></span></div>;
 }
 
 export function relativeTime(date: string | null | undefined, now: number, locale: Locale = 'en') {

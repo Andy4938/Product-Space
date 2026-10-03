@@ -1,4 +1,4 @@
-// GhostSignal service worker: shows guardian alerts even when no GhostSignal tab is open.
+// PhanTomSignal service worker: shows guardian alerts even when no PhanTomSignal tab is open.
 const LINK_CACHE = 'ghostsignal-links';
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -7,8 +7,8 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : '' }; }
-  event.waitUntil(self.registration.showNotification(`GhostSignal: ${data.title || 'Walk update'}`, {
-    body: data.body || 'Open GhostSignal for details.',
+  event.waitUntil(self.registration.showNotification(`PhanTomSignal: ${data.title || 'Walk update'}`, {
+    body: data.body || 'Open PhanTomSignal for details.',
     tag: `${data.sessionId || 'ghostsignal'}-${data.tag || 'update'}`,
     renotify: true,
     requireInteraction: Boolean(data.urgent),

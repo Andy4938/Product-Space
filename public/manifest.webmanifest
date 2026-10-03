@@ -1,6 +1,6 @@
 {
-  "name": "GhostSignal",
-  "short_name": "GhostSignal",
+  "name": "PhanTomSignal",
+  "short_name": "PhanTomSignal",
   "description": "A help signal that moves with you.",
   "start_url": "/",
   "display": "standalone",

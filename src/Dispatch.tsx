@@ -4,7 +4,7 @@ import { Circle, MapContainer, Marker, Polyline, TileLayer, Tooltip, ZoomControl
 import { INCIDENT_OUTCOMES, type DispatchIncident, type IncidentEventKind, type IncidentOutcome, type IncidentStatus } from './api-types';
 import { acknowledgeIncident, addIncidentNote, ApiRequestError, listIncidents, resolveIncident, respondToIncident } from './api';
 import { describeNearLandmark } from './landmarks';
-import { accuracyLabel, CAMPUS_CENTER, Icon, type IconName, elapsed, locationHealth, mapLink, movementSummary, playTones, relativeTime, useNow } from './shared';
+import { accuracyLabel, Brand, CAMPUS_CENTER, Icon, type IconName, elapsed, locationHealth, mapLink, movementSummary, playTones, relativeTime, useNow } from './shared';
 import { PRESET_MESSAGES } from './preset-messages';
 import { getIncomingMessageIds, getUnreadMessageCount } from './dispatch-messages';
 import './DispatchUX.css';
@@ -60,9 +60,9 @@ function DispatchLogin({ onLogin }: { onLogin: (code: string) => void }) {
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   };
-  return <div className="dispatch-shell dispatch-login-shell" lang="en">
+  return <div className="dispatch-shell landing-site dispatch-login-shell" lang="en">
     <form className="dispatch-login" onSubmit={submit}>
-      <div className="dispatch-brand"><span className="dispatch-mark"><Icon name="radio" size={20} /></span><span>GhostSignal<small>CAMPUS SAFETY CONSOLE</small></span></div>
+      <div className="brand-lockup"><Brand /><span className="brand-descriptor dispatch-descriptor">CAMPUS SAFETY CONSOLE</span></div>
       <h1>Dispatcher sign-in</h1>
       <p>Use the access code printed next to “Campus Safety console” in the computer’s app terminal. The code is case-sensitive.</p>
       <label className="dispatch-field"><span>Access code</span><input autoFocus value={value} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={event => setValue(event.target.value)} /></label>
@@ -176,7 +176,7 @@ function DispatchConsole({ code, onSignOut }: { code: string; onSignOut: () => v
   }, [awaiting, soundOn]);
 
   useEffect(() => {
-    document.title = awaiting ? `(${awaiting}) NEW SIGNAL · GhostSignal Dispatch` : 'GhostSignal · Campus Safety Console';
+    document.title = awaiting ? `(${awaiting}) NEW SIGNAL · PhanTomSignal Dispatch` : 'PhanTomSignal · Campus Safety Console';
     return () => { document.title = baseTitle.current; };
   }, [awaiting]);
 
@@ -212,9 +212,9 @@ function DispatchConsole({ code, onSignOut }: { code: string; onSignOut: () => v
     catch { setNotificationError(true); }
   };
 
-  return <div className="dispatch-shell" lang="en">
+  return <div className="dispatch-shell landing-site" lang="en">
     <header className="dispatch-top">
-      <div className="dispatch-brand"><span className="dispatch-mark"><Icon name="radio" size={20} /></span><span>GhostSignal<small>CAMPUS SAFETY CONSOLE</small></span></div>
+      <div className="brand-lockup"><Brand /><span className="brand-descriptor dispatch-descriptor">CAMPUS SAFETY CONSOLE</span></div>
       <div className="dispatch-stats" aria-live="polite">
         <div className={`dispatch-stat ${awaiting ? 'alarm' : ''}`}><strong>{awaiting}</strong><span>Awaiting acknowledgment</span></div>
         <div className="dispatch-stat"><strong>{open.length}</strong><span>Open signals</span></div>
@@ -227,7 +227,7 @@ function DispatchConsole({ code, onSignOut }: { code: string; onSignOut: () => v
         <button className="dispatch-ghost" onClick={onSignOut}>Sign out</button>
       </div>
     </header>
-    <div className="dispatch-proto-bar"><Icon name="alert" size={14} />PROTOTYPE CONSOLE · Signals come from GhostSignal walkers. Not connected to UIUC Police, METCOM, or 911.</div>
+    <div className="dispatch-proto-bar"><Icon name="alert" size={14} />PROTOTYPE CONSOLE · Signals come from PhanTomSignal walkers. Not connected to UIUC Police, METCOM, or 911.</div>
     {error && <div className="dispatch-error" role="alert"><Icon name="alert" size={16} /><span>{loaded ? 'Updates interrupted. Showing the last received data.' : 'Could not connect to the console.'} {error}</span><button className="dispatch-ghost" disabled={syncing} onClick={() => refreshNow.current()}>{syncing ? 'Retrying…' : 'Retry now'}</button></div>}
     {soundError && <div className="dispatch-error" role="status">Alert sound could not start. Keep this console visible and try enabling sound again.</div>}
     <nav className="dispatch-mobile-nav" aria-label="Console views">

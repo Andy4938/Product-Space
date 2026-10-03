@@ -1,4 +1,4 @@
-# GhostSignal
+# PhanTomSignal
 
 A mobile-first hackathon prototype for requesting help **without speaking or making a call**. The student holds **Emergency help** for three seconds and sees a clear delivery and response status. Their live location is shared with the prototype Campus Safety console and an optional trusted guardian. The student stays on one screen; maps are for the guardian and dispatcher. Preset messages and an optional clothing description help explain the situation without a conversation. Short vibrations accompany dispatcher acknowledgement and response updates.
 

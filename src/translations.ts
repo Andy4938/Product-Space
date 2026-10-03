@@ -110,10 +110,10 @@ export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>>
     "zh-CN": "持有此链接的人都能查看你的步行。请仅与信任的人分享。",
     "hi": "इस लिंक वाला कोई भी व्यक्ति आपका सफ़र देख सकता है। इसे केवल किसी भरोसेमंद व्यक्ति से शेयर करें।"
   },
-  "This localhost link works only on this device. Open GhostSignal from a public HTTPS address before sharing with another phone.": {
-    "es": "Este enlace de localhost solo funciona en este dispositivo. Abre GhostSignal desde una dirección HTTPS pública antes de compartirlo con otro teléfono.",
-    "zh-CN": "此 localhost 链接仅在本设备上有效。请先通过公共 HTTPS 地址打开 GhostSignal，再与另一部手机分享。",
-    "hi": "यह localhost लिंक केवल इसी डिवाइस पर काम करता है। दूसरे फ़ोन से शेयर करने से पहले GhostSignal को सार्वजनिक HTTPS पते से खोलें।"
+  "This localhost link works only on this device. Open PhanTomSignal from a public HTTPS address before sharing with another phone.": {
+    "es": "Este enlace de localhost solo funciona en este dispositivo. Abre PhanTomSignal desde una dirección HTTPS pública antes de compartirlo con otro teléfono.",
+    "zh-CN": "此 localhost 链接仅在本设备上有效。请先通过公共 HTTPS 地址打开 PhanTomSignal，再与另一部手机分享。",
+    "hi": "यह localhost लिंक केवल इसी डिवाइस पर काम करता है। दूसरे फ़ोन से शेयर करने से पहले PhanTomSignal को सार्वजनिक HTTPS पते से खोलें।"
   },
   "On a private network, both phones need the same Wi-Fi. Live GPS on the walker’s phone also needs HTTPS.": {
     "es": "En una red privada, ambos teléfonos necesitan la misma red Wi-Fi. El GPS en vivo del teléfono de quien camina también necesita HTTPS.",
@@ -540,10 +540,10 @@ export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>>
     "zh-CN": "守护链接",
     "hi": "गार्जियन लिंक"
   },
-  "GHOSTSIGNAL · A CAMPUS SAFETY PROTOTYPE": {
-    "es": "GHOSTSIGNAL · PROTOTIPO DE SEGURIDAD DEL CAMPUS",
-    "zh-CN": "GHOSTSIGNAL · 校园安全原型",
-    "hi": "GHOSTSIGNAL · कैंपस सुरक्षा प्रोटोटाइप"
+  "PHANTOMSIGNAL · A CAMPUS SAFETY PROTOTYPE": {
+    "es": "PHANTOMSIGNAL · PROTOTIPO DE SEGURIDAD DEL CAMPUS",
+    "zh-CN": "PHANTOMSIGNAL · 校园安全原型",
+    "hi": "PHANTOMSIGNAL · कैंपस सुरक्षा प्रोटोटाइप"
   },
   "Location sharing works while this page stays active.": {
     "es": "La ubicación se comparte mientras esta página esté activa.",
@@ -665,10 +665,10 @@ export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>>
     "zh-CN": "继续步行",
     "hi": "चलते रहें"
   },
-  "Keep GhostSignal open while you walk. Updates may pause if the screen locks or you switch apps.": {
-    "es": "Mantén GhostSignal abierto mientras caminas. Las actualizaciones pueden pausarse si bloqueas la pantalla o cambias de aplicación.",
-    "zh-CN": "步行时请保持 GhostSignal 打开。锁屏或切换应用可能会暂停更新。",
-    "hi": "चलते समय GhostSignal खुला रखें। स्क्रीन लॉक होने या ऐप बदलने पर अपडेट रुक सकते हैं।"
+  "Keep PhanTomSignal open while you walk. Updates may pause if the screen locks or you switch apps.": {
+    "es": "Mantén PhanTomSignal abierto mientras caminas. Las actualizaciones pueden pausarse si bloqueas la pantalla o cambias de aplicación.",
+    "zh-CN": "步行时请保持 PhanTomSignal 打开。锁屏或切换应用可能会暂停更新。",
+    "hi": "चलते समय PhanTomSignal खुला रखें। स्क्रीन लॉक होने या ऐप बदलने पर अपडेट रुक सकते हैं।"
   },
   "Signal sent": {
     "es": "Señal enviada",
@@ -1345,10 +1345,10 @@ export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>>
     "zh-CN": "这是安全控制台原型，不会拨打 911。如遇紧迫危险，请联系紧急服务。",
     "hi": "यह एक प्रोटोटाइप सुरक्षा कंसोल है। यह 911 पर कॉल नहीं करता। तुरंत खतरे में आपातकालीन सेवाओं से संपर्क करें।"
   },
-  "Ghost": {
-    "es": "Ghost",
-    "zh-CN": "Ghost",
-    "hi": "Ghost"
+  "PhanTom": {
+    "es": "PhanTom",
+    "zh-CN": "PhanTom",
+    "hi": "PhanTom"
   },
   "Signal": {
     "es": "Signal",
