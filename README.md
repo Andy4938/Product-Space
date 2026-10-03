@@ -101,6 +101,16 @@ The Vite development proxy targets port 3001. Change the proxy too if you change
 - **Text-only guardian view:** an accessible view without map tiles for screen-reader, low-vision, and low-bandwidth use.
 - Location validation, monotonic timestamps, bounded update frequency, no-store API responses, and a session-creation rate limit.
 
+## Languages and nonverbal messages
+
+Open **Settings** on the walker or guardian page to choose English, Spanish, Simplified Chinese, or Hindi. The choice is saved on that device. Switching languages preserves the current walk, location tracking, and selected preset message.
+
+Before sending a help signal, optionally select one of four messages: “I think someone is following me,” “I cannot speak right now,” “I need medical help,” or “Please send someone to meet me.” Selecting alone does not send anything. The selected message is attached to the confirmed help request. During an active request, select a message and tap **Send message** to add an update. Confirmed messages appear on the walker, guardian, and dispatcher screens.
+
+Messages use stable IDs so guardians see the same meaning in their chosen language. The dispatcher console, push/SMS notifications, and freeform notes remain in their original language. This feature does not automatically translate conversations. The latest 20 messages are displayed per incident; duplicate retries are deduplicated, and new messages are limited to one every two seconds. Messages cannot be sent after cancellation, closure, or the end of a walk.
+
+The Settings dialog supports keyboard navigation and Escape. Phone layouts adapt the header, emergency control, maps, and message grid to the available width; long translations wrap and longer pages scroll vertically.
+
 ## Limits that matter
 
 This is a hackathon prototype. **The Campus Safety console is not connected to UIUC Police, METCOM, or 911, and nobody monitors it.** The pages say this. A real deployment would need agreement with campus police on staffing, response policy, dispatcher accounts, and audit logging.

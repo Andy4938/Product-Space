@@ -5,6 +5,7 @@ import { INCIDENT_OUTCOMES, type DispatchIncident, type IncidentEventKind, type 
 import { acknowledgeIncident, addIncidentNote, ApiRequestError, listIncidents, resolveIncident, respondToIncident } from './api';
 import { describeNearLandmark } from './landmarks';
 import { accuracyLabel, CAMPUS_CENTER, Icon, type IconName, elapsed, locationHealth, mapLink, movementSummary, playTones, relativeTime, useNow } from './shared';
+import { PRESET_MESSAGES } from './preset-messages';
 
 const CODE_KEY = 'ghostsignal-dispatch-code';
 const POLL_MS = 2000;
@@ -49,7 +50,7 @@ function DispatchLogin({ onLogin }: { onLogin: (code: string) => void }) {
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   };
-  return <div className="dispatch-shell dispatch-login-shell">
+  return <div className="dispatch-shell dispatch-login-shell" lang="en">
     <form className="dispatch-login" onSubmit={submit}>
       <div className="dispatch-brand"><span className="dispatch-mark"><Icon name="radio" size={20} /></span><span>GhostSignal<small>CAMPUS SAFETY CONSOLE</small></span></div>
       <h1>Dispatcher sign-in</h1>
@@ -146,7 +147,7 @@ function DispatchConsole({ code, onSignOut }: { code: string; onSignOut: () => v
   const replace = (next: DispatchIncident) => setIncidents(list => list.map(incident => incident.id === next.id ? next : incident));
   const list = tab === 'open' ? open : closed;
 
-  return <div className="dispatch-shell">
+  return <div className="dispatch-shell" lang="en">
     <header className="dispatch-top">
       <div className="dispatch-brand"><span className="dispatch-mark"><Icon name="radio" size={20} /></span><span>GhostSignal<small>CAMPUS SAFETY CONSOLE</small></span></div>
       <div className="dispatch-stats" aria-live="polite">
@@ -258,6 +259,7 @@ function IncidentPanel({ code, incident, now, onUpdate }: { code: string; incide
   const location = incident.location;
   const health = locationHealth(location, now);
   const guardianNotes = incident.events.filter(event => event.kind === 'guardian_note');
+  const presetLabel = (id: string) => PRESET_MESSAGES.find(preset => preset.id === id)?.en ?? 'Message unavailable';
 
   const run = async (name: string, action: () => Promise<DispatchIncident>) => {
     setBusy(name); setError(null);
@@ -281,6 +283,11 @@ function IncidentPanel({ code, incident, now, onUpdate }: { code: string; incide
     {open && incident.walkerCancelledAt && <div className="panel-alert warn"><Icon name="x" size={16} /><span><strong>Walker cancelled</strong> at {new Date(incident.walkerCancelledAt).toLocaleTimeString()}. Someone could have forced them to cancel; verify in person before closing.</span></div>}
     {open && incident.sessionState !== 'sharing' && <div className="panel-alert"><Icon name={incident.sessionState === 'ended' ? 'heart' : 'clock'} size={16} /><span>{incident.sessionState === 'ended' ? 'Walker ended the walk.' : 'Walker’s session expired.'} Live updates stopped; showing last known location. {incident.sessionState === 'ended' ? 'Ending can also be coerced.' : 'Their phone may have died or closed the app.'}</span></div>}
     {open && location && health.level === 'stale' && incident.sessionState === 'sharing' && <div className="panel-alert bad"><Icon name="alert" size={16} /><span><strong>Location is stale.</strong> Last update {relativeTime(location.recordedAt, now)}. The walker’s phone may be locked, offline, or out of battery.</span></div>}
+
+    {incident.messages.length > 0 && <section className="panel-section dispatch-quick-messages" aria-label="Quick messages from the walker">
+      <h3><Icon name="note" size={15} />Quick messages from the walker</h3>
+      <ol>{incident.messages.map(message => <li key={message.id}><time dateTime={message.sentAt}>{new Date(message.sentAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time><strong>{presetLabel(message.presetId)}</strong></li>)}</ol>
+    </section>}
 
     <section className="panel-section">
       <h3><Icon name="pin" size={15} />{open && incident.sessionState === 'sharing' ? 'Live location' : 'Last known location'}</h3>

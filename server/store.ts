@@ -5,9 +5,10 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   INCIDENT_OUTCOMES,
   type DispatchIncident, type DispatchIncidentList, type IncidentEvent, type IncidentEventKind, type IncidentOutcome,
-  type IncidentStatus, type IncidentSummary, type LocationPoint, type PushSubscriptionInput, type SessionMode,
+  type IncidentMessage, type IncidentStatus, type IncidentSummary, type LocationPoint, type PushSubscriptionInput, type SessionMode,
   type SessionSnapshot, type SessionStatus,
 } from '../src/api-types.js';
+import { isPresetMessageId, type PresetMessageId } from '../src/preset-messages.js';
 import { silentNotifier, type Notifier, type PushPayload } from './notify.js';
 
 type EndedReason = 'safe' | 'expired' | null;
@@ -60,6 +61,7 @@ interface IncidentRow {
   final_trail_json: string | null;
   final_walker_description: string | null;
   events_json: string;
+  messages_json: string;
 }
 
 const SESSION_LIFETIME_MS = 2 * 60 * 60 * 1000;
@@ -71,6 +73,8 @@ const MAX_ALERTS_PER_SESSION = 10;
 const MAX_PUSH_DEVICES = 5;
 const MAX_INCIDENT_EVENTS = 100;
 const MAX_GUARDIAN_NOTES = 20;
+const MAX_PUBLIC_MESSAGES = 20;
+const MESSAGE_INTERVAL_MS = 2000;
 const RESOLVED_VISIBLE_MS = 12 * 60 * 60 * 1000;
 
 const ADDED_SESSION_COLUMNS: Record<string, string> = {
@@ -81,6 +85,7 @@ const ADDED_SESSION_COLUMNS: Record<string, string> = {
 
 const ADDED_INCIDENT_COLUMNS: Record<string, string> = {
   final_walker_description: 'TEXT',
+  messages_json: "TEXT NOT NULL DEFAULT '[]'",
 };
 
 // Clearing a session removes everything that could locate or identify the walker or guardian.
@@ -117,6 +122,7 @@ function toIncidentSummary(row: IncidentRow): IncidentSummary {
     resolvedAt: isoOrNull(row.resolved_at),
     outcome: row.outcome,
     walkerCancelledAt: isoOrNull(row.walker_cancelled_at),
+    messages: JSON.parse(row.messages_json) as IncidentMessage[],
   };
 }
 
@@ -151,6 +157,30 @@ function normalizeText(value: unknown, maxLength: number, label: string, require
   }
   if (required && !trimmed) throw new ApiError(400, `${label} is required.`);
   return trimmed || null;
+}
+
+function parsePresetId(value: unknown): PresetMessageId {
+  if (!isPresetMessageId(value)) throw new ApiError(400, 'Choose a preset message.');
+  return value;
+}
+
+function parseClientMessageId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new ApiError(400, 'Invalid message ID.');
+  }
+  return value.toLowerCase();
+}
+
+function parseHelpPreset(input: unknown): { presetId: PresetMessageId; clientMessageId: string } | null {
+  if (input === undefined) return null;
+  const body = asObject(input, 'Invalid help request.');
+  if (!('presetId' in body) || Object.keys(body).some((key) => key !== 'presetId' && key !== 'clientMessageId')) {
+    throw new ApiError(400, 'Invalid help request.');
+  }
+  return {
+    presetId: parsePresetId(body.presetId),
+    clientMessageId: body.clientMessageId === undefined ? randomUUID() : parseClientMessageId(body.clientMessageId),
+  };
 }
 
 function asObject(input: unknown, message: string): Record<string, unknown> {
@@ -240,10 +270,19 @@ export class SessionStore {
         final_location_json TEXT,
         final_trail_json TEXT,
         final_walker_description TEXT,
-        events_json TEXT NOT NULL
+        events_json TEXT NOT NULL,
+        messages_json TEXT NOT NULL DEFAULT '[]'
       );
       CREATE INDEX IF NOT EXISTS incidents_session ON incidents(session_id, opened_at);
       CREATE INDEX IF NOT EXISTS incidents_status ON incidents(status, resolved_at);
+      CREATE TABLE IF NOT EXISTS incident_message_receipts (
+        client_message_id TEXT PRIMARY KEY,
+        incident_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        preset_id TEXT NOT NULL,
+        received_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS incident_message_receipts_session ON incident_message_receipts(session_id);
       CREATE TABLE IF NOT EXISTS push_subscriptions (
         session_id TEXT NOT NULL,
         endpoint TEXT NOT NULL,
@@ -352,35 +391,65 @@ export class SessionStore {
     return { devices: this.pushDeviceCount(id) };
   }
 
-  requestHelp(id: string, token: string): SessionSnapshot {
+  requestHelp(id: string, token: string, input?: unknown): SessionSnapshot {
     this.expireDue();
-    const row = this.authorize(id, token, true);
-    if (row.status === 'ended') throw new ApiError(409, 'Session has ended.');
-    const open = this.openIncident(id);
-    if (row.status === 'active' || !open) {
-      const timestamp = this.now();
-      this.database.prepare(`
-        UPDATE sessions SET status = 'help_requested', help_requested_at = ?,
-          updated_at = MAX(updated_at + 1, ?) WHERE id = ?
-      `).run(timestamp, timestamp, id);
-      let reference: string;
-      if (open) {
-        reference = open.reference;
-        this.database.prepare('UPDATE incidents SET walker_cancelled_at = NULL WHERE id = ?').run(open.id);
-        this.addEvent(open.id, 'walker_resent', 'Walker sent the silent help signal again after cancelling.', timestamp);
-      } else {
-        reference = `GS-${randomBytes(3).toString('hex').toUpperCase()}`;
-        const opened: IncidentEvent = { at: iso(timestamp), kind: 'opened', text: 'Silent help signal received from walker.' };
-        const previousIncident = this.database.prepare('SELECT updated_at FROM incidents WHERE session_id = ? ORDER BY rowid DESC LIMIT 1')
-          .get(id) as unknown as Pick<IncidentRow, 'updated_at'> | undefined;
-        const revision = Math.max(timestamp, row.updated_at + 1, (previousIncident?.updated_at ?? -Infinity) + 1);
-        this.database.prepare(`
-          INSERT INTO incidents (id, session_id, reference, status, opened_at, updated_at, events_json)
-          VALUES (?, ?, ?, 'new', ?, ?, ?)
-        `).run(randomUUID(), id, reference, timestamp, revision, JSON.stringify([opened]));
+    let row: SessionRow;
+    let notification: { reference: string; timestamp: number } | null = null;
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      row = this.authorize(id, token, true);
+      if (row.status === 'ended') throw new ApiError(409, 'Session has ended.');
+      const initial = parseHelpPreset(input);
+      const latest = this.database.prepare('SELECT id, updated_at FROM incidents WHERE session_id = ? ORDER BY rowid DESC LIMIT 1')
+        .get(id) as unknown as Pick<IncidentRow, 'id' | 'updated_at'> | undefined;
+      const receipt = initial ? this.messageReceipt(initial.clientMessageId) : undefined;
+      if (receipt && (receipt.session_id !== id || receipt.incident_id !== latest?.id || receipt.preset_id !== initial!.presetId)) {
+        throw new ApiError(409, 'Message ID was already used.');
       }
-      this.notifyGuardian(row, {
-        sms: `GhostSignal: the walker sent a SILENT help signal. Campus Safety is notified (${reference}). Please do not call or text them; it could alert someone nearby. ${lastLocationText(row.location_json, timestamp)}`,
+      if (!receipt) {
+        const open = this.openIncident(id);
+        if (row.status === 'help_requested' && open && initial) {
+          throw new ApiError(409, 'Help is already active. Send the preset as a message.');
+        }
+        if (row.status === 'active' || !open) {
+          const timestamp = this.now();
+          this.database.prepare(`
+            UPDATE sessions SET status = 'help_requested', help_requested_at = ?,
+              updated_at = MAX(updated_at + 1, ?) WHERE id = ?
+          `).run(timestamp, timestamp, id);
+          let reference: string;
+          let incidentId: string;
+          if (open) {
+            reference = open.reference;
+            incidentId = open.id;
+            this.database.prepare('UPDATE incidents SET walker_cancelled_at = NULL WHERE id = ?').run(open.id);
+            this.addEvent(open.id, 'walker_resent', 'Walker sent the silent help signal again after cancelling.', timestamp);
+          } else {
+            reference = `GS-${randomBytes(3).toString('hex').toUpperCase()}`;
+            incidentId = randomUUID();
+            const opened: IncidentEvent = { at: iso(timestamp), kind: 'opened', text: 'Silent help signal received from walker.' };
+            const revision = Math.max(timestamp, row.updated_at + 1, (latest?.updated_at ?? -Infinity) + 1);
+            this.database.prepare(`
+              INSERT INTO incidents (id, session_id, reference, status, opened_at, updated_at, events_json)
+              VALUES (?, ?, ?, 'new', ?, ?, ?)
+            `).run(incidentId, id, reference, timestamp, revision, JSON.stringify([opened]));
+          }
+          if (initial) {
+            const incident = this.database.prepare('SELECT * FROM incidents WHERE id = ?').get(incidentId) as unknown as IncidentRow;
+            this.appendPresetMessage(incident, id, initial.presetId, initial.clientMessageId, timestamp);
+          }
+          notification = { reference, timestamp };
+        }
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
+    if (notification !== null) {
+      const { reference, timestamp } = notification;
+      this.notifyGuardian(row!, {
+        sms: `GhostSignal: the walker sent a SILENT help signal. Campus Safety is notified (${reference}). Please do not call or text them; it could alert someone nearby. ${lastLocationText(row!.location_json, timestamp)}`,
         push: { title: 'Silent help signal', body: 'Campus Safety is notified. Don’t call or text the walker; it could alert someone nearby. Tap to follow their location.', tag: 'help', urgent: true },
       });
     }
@@ -406,6 +475,42 @@ export class SessionStore {
         sms: 'GhostSignal: the walker cancelled their help signal. Campus Safety will still verify they are okay. Please keep not calling them for now.',
         push: { title: 'Signal cancelled', body: 'The walker cancelled their signal. Campus Safety will still check on them in person.', tag: 'help', urgent: false },
       });
+    }
+    return this.read(id, token);
+  }
+
+  sendPresetMessage(id: string, token: string, input: unknown): SessionSnapshot {
+    this.expireDue();
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.authorize(id, token, true);
+      if (row.status !== 'help_requested') throw new ApiError(409, 'An active help signal is required.');
+      const incident = this.openIncident(id);
+      if (!incident || incident.walker_cancelled_at !== null) throw new ApiError(409, 'An active incident is required.');
+      const body = asObject(input, 'Invalid preset message.');
+      if (Object.keys(body).length !== 2 || !('presetId' in body) || !('clientMessageId' in body)) {
+        throw new ApiError(400, 'Invalid preset message.');
+      }
+      const presetId = parsePresetId(body.presetId);
+      const clientMessageId = parseClientMessageId(body.clientMessageId);
+      const existing = this.messageReceipt(clientMessageId);
+      if (existing) {
+        if (existing.session_id !== id || existing.incident_id !== incident.id || existing.preset_id !== presetId) {
+          throw new ApiError(409, 'Message ID was already used.');
+        }
+      } else {
+        const timestamp = this.now();
+        const messages = JSON.parse(incident.messages_json) as IncidentMessage[];
+        const last = messages.at(-1);
+        if (last && timestamp - Date.parse(last.sentAt) < MESSAGE_INTERVAL_MS) {
+          throw new ApiError(429, 'Wait before sending another preset message.');
+        }
+        this.appendPresetMessage(incident, id, presetId, clientMessageId, timestamp);
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
     }
     return this.read(id, token);
   }
@@ -564,6 +669,24 @@ export class SessionStore {
     const events = [...(JSON.parse(row.events_json) as IncidentEvent[]), { at: iso(timestamp), kind, text }].slice(-MAX_INCIDENT_EVENTS);
     this.database.prepare('UPDATE incidents SET events_json = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?')
       .run(JSON.stringify(events), timestamp, incidentId);
+  }
+
+  private messageReceipt(clientMessageId: string): { incident_id: string; session_id: string; preset_id: string } | undefined {
+    return this.database.prepare(`
+      SELECT incident_id, session_id, preset_id FROM incident_message_receipts WHERE client_message_id = ?
+    `).get(clientMessageId) as unknown as { incident_id: string; session_id: string; preset_id: string } | undefined;
+  }
+
+  private appendPresetMessage(incident: IncidentRow, sessionId: string, presetId: PresetMessageId, id: string, timestamp: number): void {
+    const messages = [...(JSON.parse(incident.messages_json) as IncidentMessage[]),
+      { id, presetId, sentAt: iso(timestamp) }].slice(-MAX_PUBLIC_MESSAGES);
+    this.database.prepare(`
+      INSERT INTO incident_message_receipts (client_message_id, incident_id, session_id, preset_id, received_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, incident.id, sessionId, presetId, timestamp);
+    this.database.prepare(`
+      UPDATE incidents SET messages_json = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?
+    `).run(JSON.stringify(messages), timestamp, incident.id);
   }
 
   // Keeps the last known location and description for Campus Safety until the incident is resolved.

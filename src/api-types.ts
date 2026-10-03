@@ -1,3 +1,5 @@
+import type { PresetMessageId } from './preset-messages.js';
+
 export type SessionMode = 'live' | 'demo';
 export type SessionStatus = 'active' | 'help_requested' | 'ended';
 
@@ -25,6 +27,12 @@ export const INCIDENT_OUTCOMES: Record<IncidentOutcome, string> = {
 };
 
 // The part of a Campus Safety incident the walker and guardian can see.
+export interface IncidentMessage {
+  id: string;
+  presetId: PresetMessageId;
+  sentAt: string;
+}
+
 export interface IncidentSummary {
   id: string;
   reference: string;
@@ -36,6 +44,7 @@ export interface IncidentSummary {
   resolvedAt: string | null;
   outcome: IncidentOutcome | null;
   walkerCancelledAt: string | null;
+  messages: IncidentMessage[];
 }
 
 export interface SessionSnapshot {

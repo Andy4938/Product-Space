@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { LocationPoint } from './api-types';
+import { translate, type Locale } from './i18n';
 
 export const CAMPUS_CENTER: [number, number] = [40.1077, -88.2274];
 
@@ -35,18 +36,19 @@ export function Brand() {
   return <div className="brand"><span className="brand-mark"><span /></span><span>Ghost<span className="brand-light">Signal</span></span></div>;
 }
 
-export function relativeTime(date: string | null | undefined, now: number) {
-  if (!date) return 'No update yet';
+export function relativeTime(date: string | null | undefined, now: number, locale: Locale = 'en') {
+  const t = (source: string, params?: Record<string, string | number>) => translate(source, locale, params);
+  if (!date) return t('No update yet');
   const seconds = Math.max(0, Math.floor((now - Date.parse(date)) / 1000));
-  if (!Number.isFinite(seconds)) return 'Time unknown';
-  if (seconds < 5) return 'Just now';
-  if (seconds < 60) return `${seconds}s ago`;
+  if (!Number.isFinite(seconds)) return t('Time unknown');
+  if (seconds < 5) return t('Just now');
+  if (seconds < 60) return t('{count}s ago', { count: seconds });
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.floor(minutes / 60)}h ago`;
+  if (minutes < 60) return t('{count}m ago', { count: minutes });
+  return t('{count}h ago', { count: Math.floor(minutes / 60) });
 }
 
-export function elapsed(from: string, now: number) {
+export function elapsed(from: string, now: number, _locale: Locale = 'en') {
   const total = Math.max(0, Math.floor((now - Date.parse(from)) / 1000));
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
@@ -54,16 +56,16 @@ export function elapsed(from: string, now: number) {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
 }
 
-export function clockTime(date: string) {
-  return new Date(date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+export function clockTime(date: string, locale: Locale = 'en') {
+  return new Date(date).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
 }
 
-export function locationHealth(location: LocationPoint | null | undefined, now: number) {
-  if (!location) return { level: 'waiting', label: 'Waiting for first location' };
+export function locationHealth(location: LocationPoint | null | undefined, now: number, locale: Locale = 'en') {
+  if (!location) return { level: 'waiting', label: translate('Waiting for first location', locale) };
   const age = now - Date.parse(location.recordedAt);
-  if (age > 60_000) return { level: 'stale', label: 'Location is stale' };
-  if (age > 15_000) return { level: 'delayed', label: 'Location is delayed' };
-  return { level: 'fresh', label: 'Location updating' };
+  if (age > 60_000) return { level: 'stale', label: translate('Location is stale', locale) };
+  if (age > 15_000) return { level: 'delayed', label: translate('Location is delayed', locale) };
+  return { level: 'fresh', label: translate('Location updating', locale) };
 }
 
 export function metersBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
@@ -75,19 +77,19 @@ export function metersBetween(a: { latitude: number; longitude: number }, b: { l
 }
 
 // Describes received data only; it never claims the walker is safe.
-export function movementSummary(location: LocationPoint | null, trail: LocationPoint[]) {
-  if (!location) return 'No position received yet';
+export function movementSummary(location: LocationPoint | null, trail: LocationPoint[], locale: Locale = 'en') {
+  if (!location) return translate('No position received yet', locale);
   const latestTime = Date.parse(location.recordedAt);
   const earlier = [...trail].reverse().find(point => latestTime - Date.parse(point.recordedAt) >= 60_000);
-  if (!earlier) return 'Not enough updates yet to tell movement';
-  return metersBetween(earlier, location) > Math.max(25, location.accuracy) ? 'Moving over the last minute' : 'Little or no movement over the last minute';
+  if (!earlier) return translate('Not enough updates yet to tell movement', locale);
+  return translate(metersBetween(earlier, location) > Math.max(25, location.accuracy) ? 'Moving over the last minute' : 'Little or no movement over the last minute', locale);
 }
 
-export function accuracyLabel(accuracy: number) {
+export function accuracyLabel(accuracy: number, locale: Locale = 'en') {
   const meters = `±${Math.round(accuracy)} m`;
-  if (accuracy <= 20) return `Good (${meters})`;
-  if (accuracy <= 60) return `Fair (${meters})`;
-  return `Poor (${meters})`;
+  if (accuracy <= 20) return translate('Good ({meters})', locale, { meters });
+  if (accuracy <= 60) return translate('Fair ({meters})', locale, { meters });
+  return translate('Poor ({meters})', locale, { meters });
 }
 
 export function mapLink(point: { latitude: number; longitude: number }) {

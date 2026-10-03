@@ -89,11 +89,15 @@ export function createApp(store: SessionStore, options: { staticDir?: string; di
   }));
 
   app.post('/api/sessions/:id/help', handle((request, response) => {
-    response.json(store.requestHelp(request.params.id as string, bearerToken(request)));
+    response.json(store.requestHelp(request.params.id as string, bearerToken(request), request.body as unknown));
   }));
 
   app.post('/api/sessions/:id/help/retract', handle((request, response) => {
     response.json(store.retractHelp(request.params.id as string, bearerToken(request)));
+  }));
+
+  app.post('/api/sessions/:id/messages', handle((request, response) => {
+    response.json(store.sendPresetMessage(request.params.id as string, bearerToken(request), request.body as unknown));
   }));
 
   app.post('/api/sessions/:id/end', handle((request, response) => {

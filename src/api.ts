@@ -1,4 +1,5 @@
 import type { ContactsInput, CreateSessionResponse, DispatchIncident, DispatchIncidentList, IncidentOutcome, PushSubscriptionInput, SessionSnapshot } from './api-types';
+import { newClientMessageId, type PresetMessageId } from './preset-messages';
 
 export type OwnerCredentials = {
   sessionId: string;
@@ -74,8 +75,16 @@ export function sendGuardianNote(sessionId: string, token: string, text: string)
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/guardian-notes`, { method: 'POST', body: JSON.stringify({ text }) }, token);
 }
 
-export function requestHelp(sessionId: string, token: string): Promise<SessionSnapshot> {
-  return request(`/api/sessions/${encodeURIComponent(sessionId)}/help`, { method: 'POST' }, token);
+export function requestHelp(sessionId: string, token: string, presetId?: PresetMessageId, clientMessageId?: string): Promise<SessionSnapshot> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/help`, {
+    method: 'POST', body: presetId === undefined ? undefined : JSON.stringify({ presetId, clientMessageId: clientMessageId ?? newClientMessageId() }),
+  }, token);
+}
+
+export function sendPresetMessage(sessionId: string, token: string, presetId: PresetMessageId, clientMessageId: string): Promise<SessionSnapshot> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    method: 'POST', body: JSON.stringify({ presetId, clientMessageId }),
+  }, token);
 }
 
 export function retractHelp(sessionId: string, token: string): Promise<SessionSnapshot> {

@@ -64,3 +64,12 @@ Actual phone GPS and permission behavior were not exercised. There is no verifie
 - Verified that delivery replaces the send button, acknowledgement and dispatch update automatically, cancellation remains pending through reload, stopping live location requires confirmation, the incident remains visible after stopping/reloading, and closure displays the recorded outcome.
 - Inspected the status view at a 390-pixel phone width and restored the normal viewport afterward. Closed the isolated preview and stopped its server after testing.
 - Actual phone GPS and external notification delivery were not exercised.
+
+## Multilingual messages and phone layout
+
+- An independent testing agent added language, placeholder, Settings dialog, and message receipt coverage. The final suite passes all 61 tests; TypeScript and the production build pass.
+- API tests cover an atomic initial help-plus-message, persisted guardian/dispatcher visibility, owner-only writes, invalid presets, exact retry receipts, rate limits, bounded history, and cancelled/resolved/ended incidents. Delayed retries do not reopen an incident or duplicate a message.
+- Browser checks used an isolated in-memory server with silent notifications and simulated locations. A fixture created the initial incident/preset; the actual UI sent a follow-up. Both appeared in the guardian and dispatcher views, including a Chinese guardian view and Hindi walker view. A dispatcher acknowledgement updated the translated walker status.
+- Verified that selecting a preset does not send it, selection survives language changes, the saved language survives reload, and confirmed messages survive reload. Settings exposes all four languages; Escape closes its native dialog and restores focus to Settings.
+- Inspected exact 320, 390, and 475-pixel iframe layouts. After removing fixed minimum widths, each page's scroll width matched its available width. Hindi labels wrap in the two-column preset grid, with 13-pixel button text and a compact header. The normal walk and guardian views also received responsive spacing and map sizing.
+- External push/SMS text, dispatcher UI, and freeform notes are not automatically translated. Actual phone GPS, operating-system notifications, and native-speaker translation review were not exercised.

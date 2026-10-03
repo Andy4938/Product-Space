@@ -4,12 +4,16 @@ import './landing.css';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, ZoomControl, useMap } from 'react-leaflet';
 import { INCIDENT_OUTCOMES, type ContactsInput, type IncidentStatus, type IncidentSummary, type SessionSnapshot } from './api-types';
-import { addPushSubscription, ApiRequestError, endSession, getPushPublicKey, getSession, postLocation, requestHelp, retractHelp, sendGuardianNote, setContacts, startSession, type OwnerCredentials } from './api';
+import { addPushSubscription, ApiRequestError, endSession, getPushPublicKey, getSession, postLocation, retractHelp, sendGuardianNote, sendPresetMessage, setContacts, startSession, type OwnerCredentials } from './api';
 import DispatchApp from './Dispatch';
 import { demoLocation } from './demoPath';
 import { createLocationUploader } from './location-upload';
 import { startLocationWatch } from './location-watch';
 import { accuracyLabel, Brand, CAMPUS_CENTER, clockTime, elapsed, Icon, locationHealth, mapLink, movementSummary, playTones, relativeTime, useNow } from './shared';
+import { SettingsButton, useI18n } from './i18n';
+import { QuickMessages, ReceivedMessages } from './QuickMessages';
+import './QuickMessages.css';
+import type { PresetMessageId } from './preset-messages';
 
 const STORAGE_KEY = 'ghostsignal-owner-v1';
 const EMERGENCY_VIEW_KEY = 'ghostsignal-emergency-view-v1';
@@ -35,18 +39,19 @@ function safeDecode(value: string) {
 
 function WalkGuide() {
   const dialog = useRef<HTMLDialogElement>(null);
+  const { t } = useI18n();
   return <>
-    <button className="guide-trigger" onClick={() => dialog.current?.showModal()}>How it works <Icon name="arrow" size={15} /></button>
+    <button className="guide-trigger" aria-label={t('How it works')} onClick={() => dialog.current?.showModal()}>{t('How it works')} <Icon name="arrow" size={15} /></button>
     <dialog ref={dialog} className="walk-guide" aria-labelledby="guide-title">
-      <div className="guide-top"><span className="overline">A LITTLE CLOSER, EVEN FROM AFAR</span><button className="icon-button" aria-label="Close guide" onClick={() => dialog.current?.close()}><Icon name="x" /></button></div>
-      <h2 id="guide-title">Your walk. Your people.</h2>
+      <div className="guide-top"><span className="overline">{t('A LITTLE CLOSER, EVEN FROM AFAR')}</span><button className="icon-button" aria-label={t('Close guide')} onClick={() => dialog.current?.close()}><Icon name="x" /></button></div>
+      <h2 id="guide-title">{t('Your walk. Your people.')}</h2>
       <ol className="guide-steps">
-        <li><Icon name="pin" /><div><strong>Start your walk</strong><p>Allow location access, or explore a simulated UIUC walk without using your GPS.</p></div></li>
-        <li><Icon name="link" /><div><strong>Bring someone along</strong><p>Send the private guardian link to someone you trust. Anyone with the link can view your location and status.</p></div></li>
-        <li><Icon name="shield" /><div><strong>Stay connected</strong><p>Keep this page open and your screen unlocked. A help signal opens a request in the prototype safety console and updates your guardian. Guardian notifications require setup. This prototype is not connected to 911 or UIUC Police.</p></div></li>
+        <li><Icon name="pin" /><div><strong>{t('Start your walk')}</strong><p>{t('Allow location access, or explore a simulated UIUC walk without using your GPS.')}</p></div></li>
+        <li><Icon name="link" /><div><strong>{t('Bring someone along')}</strong><p>{t('Send the private guardian link to someone you trust. Anyone with the link can view your location and status.')}</p></div></li>
+        <li><Icon name="shield" /><div><strong>{t('Stay connected')}</strong><p>{t('Keep this page open and your screen unlocked. A help signal opens a request in the prototype safety console and updates your guardian. Guardian notifications require setup. This prototype is not connected to 911 or UIUC Police.')}</p></div></li>
       </ol>
-      <div className="guide-note"><Icon name="clock" size={17} />End sharing whenever you choose. Sessions expire after two hours.</div>
-      <button className="primary-button" onClick={() => dialog.current?.close()}>Got it. Let’s walk. <Icon name="arrow" /></button>
+      <div className="guide-note"><Icon name="clock" size={17} />{t('End sharing whenever you choose. Sessions expire after two hours.')}</div>
+      <button className="primary-button" onClick={() => dialog.current?.close()}>{t('Got it. Let’s walk.')} <Icon name="arrow" /></button>
     </dialog>
   </>;
 }
@@ -97,14 +102,15 @@ function MapFollow({ latitude, longitude }: { latitude: number; longitude: numbe
 
 // `calm` keeps the walker's own map in its normal colors after a signal, so the screen gives nothing away.
 function SessionMap({ snapshot, calm = false }: { snapshot: SessionSnapshot | null; calm?: boolean }) {
+  const { t, locale } = useI18n();
   const location = snapshot?.location;
   const trail = snapshot?.trail || [];
   const point: [number, number] = location ? [location.latitude, location.longitude] : CAMPUS_CENTER;
   const help = !calm && snapshot?.status === 'help_requested';
   return <div className="app-map">
-    <MapContainer center={point} zoom={location ? 16 : 14} scrollWheelZoom={false} zoomControl={false} className="map-canvas" aria-label="Map showing shared location near the University of Illinois campus">
+    <MapContainer center={point} zoom={location ? 16 : 14} scrollWheelZoom={false} zoomControl={false} className="map-canvas" aria-label={t('Map showing shared location near the University of Illinois campus')}>
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} referrerPolicy="strict-origin" />
-      <ZoomControl position="bottomright" />
+      <ZoomControl key={locale} position="bottomright" zoomInTitle={t('Zoom in')} zoomOutTitle={t('Zoom out')} />
       {trail.length > 1 && <Polyline positions={trail.map(p => [p.latitude, p.longitude])} pathOptions={{ color: help ? '#bb684d' : '#3d7d70', weight: 5, opacity: .75 }} />}
       {location && <>
         <Circle center={point} radius={Math.max(location.accuracy, 1)} pathOptions={{ color: help ? '#c57459' : '#579581', fillColor: help ? '#c57459' : '#579581', fillOpacity: .13, weight: 1.5 }} />
@@ -112,7 +118,7 @@ function SessionMap({ snapshot, calm = false }: { snapshot: SessionSnapshot | nu
         <MapFollow latitude={location.latitude} longitude={location.longitude} />
       </>}
     </MapContainer>
-    {!location && <div className="map-empty"><span className="map-empty-icon"><Icon name="pin" size={25} /></span><strong>Finding your location</strong><span>The map updates when a position is available.</span></div>}
+    {!location && <div className="map-empty"><span className="map-empty-icon"><Icon name="pin" size={25} /></span><strong>{t('Finding your location')}</strong><span>{t('The map updates when a position is available.')}</span></div>}
   </div>;
 }
 
@@ -135,7 +141,8 @@ function Fold({ title, summary, icon, children, defaultOpen = false }: { title: 
 
 // The help trigger is a neutral "Hold to check in" control. Holding is deliberate enough to avoid
 // pocket presses, and the screen barely changes afterwards so nobody nearby can tell.
-function HoldToCheckIn({ onSignal, disabled }: { onSignal: () => void; disabled: boolean }) {
+function HoldToCheckIn({ onSignal, onHoldStart, onBusyChange, disabled }: { onSignal: () => void; onHoldStart?: () => void; onBusyChange?: (busy: boolean) => void; disabled: boolean }) {
+  const { t } = useI18n();
   const [progress, setProgress] = useState(0);
   const frame = useRef(0);
   const startedAt = useRef<number | null>(null);
@@ -144,6 +151,7 @@ function HoldToCheckIn({ onSignal, disabled }: { onSignal: () => void; disabled:
     cancelAnimationFrame(frame.current);
     startedAt.current = null;
     setProgress(0);
+    onBusyChange?.(false);
   };
   const tick = () => {
     if (startedAt.current === null) return;
@@ -155,6 +163,8 @@ function HoldToCheckIn({ onSignal, disabled }: { onSignal: () => void; disabled:
   const begin = () => {
     if (disabled || startedAt.current !== null) return;
     startedAt.current = performance.now();
+    onHoldStart?.();
+    onBusyChange?.(true);
     frame.current = requestAnimationFrame(tick);
   };
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
@@ -170,10 +180,10 @@ function HoldToCheckIn({ onSignal, disabled }: { onSignal: () => void; disabled:
     onContextMenu={event => event.preventDefault()}
     onKeyDown={event => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); begin(); } }}
     onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') stop(); }}
-    aria-label="Silent help signal. Press and hold for about two seconds to alert Campus Safety. The screen will barely change."
+    aria-label={t('Silent help signal. Press and hold for about two seconds to alert Campus Safety. The screen will barely change.')}
   >
     <span className="hold-ring" aria-hidden="true"><svg className="hold-progress-ring" viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" /><circle className="hold-progress" cx="22" cy="22" r="19" /></svg><Icon name="check" size={20} /></span>
-    <span className="hold-text"><strong>{disabled ? 'Sending…' : 'Hold to check in'}</strong><small>Press and hold</small></span>
+    <span className="hold-text"><strong>{disabled ? t('Sending…') : t('Hold to check in')}</strong><small>{t('Press and hold')}</small></span>
   </button>;
 }
 
@@ -186,27 +196,28 @@ const QUIET_LABELS: Record<IncidentStatus, string> = {
 
 // After a signal the walker sees one low-key line; details stay folded unless they tap it.
 function QuietStatus({ incident, helpActive, onCancel, cancelling }: { incident: IncidentSummary; helpActive: boolean; onCancel: () => void; cancelling: boolean }) {
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const stage = incident.status === 'new' ? 0 : incident.status === 'acknowledged' ? 1 : 2;
   const steps = [
-    { label: 'Delivered to Campus Safety', at: incident.openedAt },
-    { label: 'Seen by a dispatcher', at: incident.acknowledgedAt },
-    { label: incident.unit ? `${incident.unit} heading to your live location` : 'Responder heading to you', at: incident.respondingAt },
+    { label: t('Delivered to Campus Safety'), at: incident.openedAt },
+    { label: t('Seen by a dispatcher'), at: incident.acknowledgedAt },
+    { label: incident.unit ? t('{unit} heading to your live location', { unit: incident.unit }) : t('Responder heading to you'), at: incident.respondingAt },
   ];
   return <div className="quiet-status">
     <button type="button" className="quiet-row" onClick={() => { setOpen(value => !value); setConfirming(false); }} aria-expanded={open}>
       <span className="quiet-dots" aria-hidden="true">{[0, 1, 2].map(index => <i key={index} className={index <= stage ? 'on' : ''} />)}</span>
-      <span className="quiet-label">{helpActive ? QUIET_LABELS[incident.status] : 'Check-in cancelled'}</span>
-      <span className="quiet-time">{clockTime(incident.openedAt)}</span>
+      <span className="quiet-label">{helpActive ? t(QUIET_LABELS[incident.status]) : t('Check-in cancelled')}</span>
+      <span className="quiet-time">{clockTime(incident.openedAt, locale)}</span>
     </button>
     {open && <div className="quiet-detail">
-      <ol>{steps.map(step => <li key={step.label} className={step.at ? 'done' : ''}><span>{step.label}</span><time>{step.at ? clockTime(step.at) : '—'}</time></li>)}</ol>
-      <p>Keep walking toward people and light if you can. Campus Safety won’t call or text you. You’ll feel a short vibration when a dispatcher sees it, and a double vibration when a responder is on the way.</p>
-      {!helpActive && <p>Campus Safety may still check on you in person.</p>}
+      <ol>{steps.map(step => <li key={step.label} className={step.at ? 'done' : ''}><span>{step.label}</span><time>{step.at ? clockTime(step.at, locale) : '—'}</time></li>)}</ol>
+      <p>{t('Keep walking toward people and light if you can. Campus Safety won’t call or text you. You’ll feel a short vibration when a dispatcher sees it, and a double vibration when a responder is on the way.')}</p>
+      {!helpActive && <p>{t('Campus Safety may still check on you in person.')}</p>}
       {helpActive && (!confirming
-        ? <button type="button" className="text-button" onClick={() => setConfirming(true)}>Cancel check-in</button>
-        : <div className="quiet-confirm"><span>Cancel? Campus Safety will still verify you’re okay.</span><button type="button" className="plan-button" disabled={cancelling} onClick={onCancel}>{cancelling ? 'Cancelling…' : 'Yes, cancel'}</button><button type="button" className="text-button" onClick={() => setConfirming(false)}>Keep it</button></div>)}
+        ? <button type="button" className="text-button" onClick={() => setConfirming(true)}>{t('Cancel check-in')}</button>
+        : <div className="quiet-confirm"><span>{t('Cancel? Campus Safety will still verify you’re okay.')}</span><button type="button" className="plan-button" disabled={cancelling} onClick={onCancel}>{cancelling ? t('Cancelling…') : t('Yes, cancel')}</button><button type="button" className="text-button" onClick={() => setConfirming(false)}>{t('Keep it')}</button></div>)}
     </div>}
   </div>;
 }
@@ -228,6 +239,7 @@ function ResponderDetails({ credentials, snapshot, onSnapshot }: {
   snapshot: SessionSnapshot;
   onSnapshot: (next: SessionSnapshot) => void;
 }) {
+  const { t } = useI18n();
   const [description, setDescription] = useState('');
   const [guardianPhone, setGuardianPhone] = useState('');
   const [saving, setSaving] = useState(false);
@@ -252,24 +264,26 @@ function ResponderDetails({ credentials, snapshot, onSnapshot }: {
   };
 
   return <form className="plan-form" onSubmit={submit}>
-    <label className="field"><span>What are you wearing?</span><textarea rows={2} maxLength={120} value={description} placeholder={snapshot.descriptionProvided ? 'Saved. Type to replace it' : 'e.g. red jacket, black backpack, glasses'} onChange={event => setDescription(event.target.value)} /></label>
-    <p className="field-hint">Responders use this to find you without calling you.</p>
-    <label className="field"><span>Guardian’s phone for text alerts</span><input type="tel" inputMode="tel" autoComplete="off" value={guardianPhone} placeholder={snapshot.textAlertsEnabled ? 'Saved. Type to replace it' : '+1 217 555 0123'} onChange={event => setGuardianPhone(event.target.value)} /></label>
-    <button className="dark-button" type="submit" disabled={saving || (!description.trim() && !guardianPhone.trim())}><span>{saving ? 'Saving…' : saved ? 'Saved' : 'Save'}</span><Icon name="check" size={18} /></button>
+    <label className="field"><span>{t('What are you wearing?')}</span><textarea rows={2} maxLength={120} value={description} placeholder={snapshot.descriptionProvided ? t('Saved. Type to replace it') : t('e.g. red jacket, black backpack, glasses')} onChange={event => setDescription(event.target.value)} /></label>
+    <p className="field-hint">{t('Responders use this to find you without calling you.')}</p>
+    <label className="field"><span>{t('Guardian’s phone for text alerts')}</span><input type="tel" inputMode="tel" autoComplete="off" value={guardianPhone} placeholder={snapshot.textAlertsEnabled ? t('Saved. Type to replace it') : '+1 217 555 0123'} onChange={event => setGuardianPhone(event.target.value)} /></label>
+    <button className="dark-button" type="submit" disabled={saving || (!description.trim() && !guardianPhone.trim())}><span>{saving ? t('Saving…') : saved ? t('Saved') : t('Save')}</span><Icon name="check" size={18} /></button>
     {(snapshot.descriptionProvided || snapshot.textAlertsEnabled) && <div className="plan-buttons">
-      {snapshot.descriptionProvided && <button type="button" className="text-button" disabled={saving} onClick={() => void save({ walkerDescription: null })}>Clear description</button>}
-      {snapshot.textAlertsEnabled && <button type="button" className="text-button" disabled={saving} onClick={() => void save({ guardianPhone: null })}>Stop guardian texts</button>}
+      {snapshot.descriptionProvided && <button type="button" className="text-button" disabled={saving} onClick={() => void save({ walkerDescription: null })}>{t('Clear description')}</button>}
+      {snapshot.textAlertsEnabled && <button type="button" className="text-button" disabled={saving} onClick={() => void save({ guardianPhone: null })}>{t('Stop guardian texts')}</button>}
     </div>}
-    <p className="field-hint">Deleted when your walk ends.</p>
-    {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+    <p className="field-hint">{t('Deleted when your walk ends.')}</p>
+    {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{t(error)}</div>}
   </form>;
 }
 
 function StudentApp() {
+  const { t, locale } = useI18n();
   const [credentials, setCredentials] = useState<OwnerCredentials | null>(readOwner);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [busy, setBusy] = useState<'live' | 'demo' | 'help' | 'retract' | 'end' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [helpErrorDetail, setHelpErrorDetail] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [ownerInvalid, setOwnerInvalid] = useState(false);
@@ -279,6 +293,9 @@ function StudentApp() {
   const [emergencyLanding, setEmergencyLanding] = useState(readEmergencyView);
   const [emergencyBusy, setEmergencyBusy] = useState(false);
   const [locationAttempt, setLocationAttempt] = useState(0);
+  const [selectedPreset, setSelectedPreset] = useState<PresetMessageId | null>(null);
+  const [quietHolding, setQuietHolding] = useState(false);
+  const heldPreset = useRef<PresetMessageId | null>(null);
   const emergencyOwner = useRef(credentials);
   emergencyOwner.current = credentials;
   const now = useNow();
@@ -303,7 +320,8 @@ function StudentApp() {
   const emergencyRequest = async () => {
     setEmergencyLanding(true);
     rememberEmergencyView(emergencyOwner.current?.sessionId ?? null);
-    await emergencyActions.send();
+    await emergencyActions.send(selectedPreset ?? undefined);
+    setSelectedPreset(null);
   };
   const openEmergency = () => {
     rememberEmergencyView(credentials?.sessionId ?? null);
@@ -434,11 +452,11 @@ function StudentApp() {
     finally { setBusy(null); startLock.current = false; }
   };
 
-  const help = async () => {
+  const help = async (presetId: PresetMessageId | null = selectedPreset) => {
     if (!credentials) return;
-    setBusy('help'); setError(null);
-    try { const next = await requestHelp(credentials.sessionId, credentials.ownerToken); setSnapshot(previous => newerSnapshot(previous, next)); }
-    catch (cause) { setError(`Check-in didn’t send: ${(cause as Error).message} Hold again to retry.`); vibrate([300, 100, 300]); }
+    setBusy('help'); setError(null); setHelpErrorDetail(null);
+    try { await emergencyActions.send(presetId ?? undefined); setSelectedPreset(null); }
+    catch (cause) { setHelpErrorDetail((cause as Error).message); setError('Check-in didn’t send: {error} Hold again to retry.'); vibrate([300, 100, 300]); }
     finally { setBusy(null); }
   };
 
@@ -470,55 +488,71 @@ function StudentApp() {
   };
   const share = async () => {
     if (navigator.share) {
-      try { await navigator.share({ title: 'Follow my walk', text: 'You can follow my walk here:', url: shareUrl }); return; } catch { /* Fall back to copying. */ }
+      try { await navigator.share({ title: t('Follow my walk'), text: t('You can follow my walk here:'), url: shareUrl }); return; } catch { /* Fall back to copying. */ }
     }
     await copy();
   };
-  const resetToStart = () => { rememberEmergencyView(null); setEmergencyLanding(false); setEmergencyBusy(false); sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); setOwnerInvalid(false); setPollError(null); window.scrollTo(0, 0); };
+  const sendQuickMessage = async (presetId: PresetMessageId, clientMessageId: string) => {
+    if (!credentials) throw new Error('Start a walk before sending a message.');
+    const next = await sendPresetMessage(credentials.sessionId, credentials.ownerToken, presetId, clientMessageId);
+    setSnapshot(previous => newerSnapshot(previous, next));
+    if (!next.incident?.messages.some(message => message.id === clientMessageId && message.presetId === presetId)) {
+      throw new Error('Message not confirmed. Retry to send it.');
+    }
+  };
+  const resetToStart = () => { rememberEmergencyView(null); setEmergencyLanding(false); setEmergencyBusy(false); sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); setOwnerInvalid(false); setPollError(null); setSelectedPreset(null); window.scrollTo(0, 0); };
 
   const ended = snapshot?.status === 'ended';
   const helpRequested = snapshot?.status === 'help_requested';
   const incident = snapshot?.incident ?? null;
   const showQuietStatus = Boolean(incident && (helpRequested || incident.status !== 'resolved'));
+  const canSendIncidentMessage = Boolean(incident && incident.status !== 'resolved' && !incident.walkerCancelledAt && helpRequested && !ended);
+  const canPrepareMessage = !incident || (incident.status === 'resolved' && !ended);
+  const messageControls = canSendIncidentMessage
+    ? <QuickMessages mode="incident" selectedId={selectedPreset} onSelect={setSelectedPreset} onSend={sendQuickMessage} sent={incident?.messages ?? []} disabled={emergencyBusy || busy !== null} />
+    : canPrepareMessage
+      ? <QuickMessages mode="prepare" selectedId={selectedPreset} onSelect={setSelectedPreset} disabled={emergencyBusy || busy !== null} />
+      : <div className="quick-readonly"><ReceivedMessages messages={incident?.messages ?? []} /><p>{t('Messages are unavailable while cancellation is pending or the walk has ended.')}</p></div>;
+  const displayedError = error ? t(error, { error: t(helpErrorDetail ?? '') }) : null;
 
   // Restore the server-confirmed request before deciding which controls to show.
   if (credentials && (!snapshot || ownerInvalid)) {
     return <div className="app">
-      <header className="app-bar"><Brand /></header>
-      <main className="app-body"><div className="restore-card"><span className="round-icon"><Icon name={ownerInvalid ? 'alert' : 'signal'} size={22} /></span><h1>{ownerInvalid ? 'Walk unavailable.' : 'Reconnecting…'}</h1><p>{ownerInvalid ? 'This saved walk could not be opened.' : pollError ? `Still trying: ${pollError}` : 'Checking your walk. Your browser may ask for location again.'}</p>{ownerInvalid && <button className="dark-button" onClick={resetToStart}>Back to start <Icon name="arrow" size={17} /></button>}</div></main>
+      <header className="app-bar"><Brand /><SettingsButton /></header>
+      <main className="app-body"><div className="restore-card"><span className="round-icon"><Icon name={ownerInvalid ? 'alert' : 'signal'} size={22} /></span><h1>{ownerInvalid ? t('Walk unavailable.') : t('Reconnecting…')}</h1><p>{ownerInvalid ? t('This saved walk could not be opened.') : pollError ? t('Still trying: {error}', { error: t(pollError) }) : t('Checking your walk. Your browser may ask for location again.')}</p>{ownerInvalid && <button className="dark-button" onClick={resetToStart}>{t('Back to start')} <Icon name="arrow" size={17} /></button>}</div></main>
     </div>;
   }
 
   if (!credentials || (emergencyLanding && (!ended || incident))) {
     return <div className="site-shell landing-site">
-    <header className="topbar"><div className="brand-lockup"><Brand /><span className="brand-descriptor">YOUR QUIET CONNECTION</span></div><div className="topbar-right"><WalkGuide /><span className="campus-tag"><span /> BUILT AT UIUC</span></div></header>
+    <header className="topbar"><div className="brand-lockup"><Brand /><span className="brand-descriptor">{t('YOUR QUIET CONNECTION')}</span></div><div className="topbar-right"><SettingsButton /><WalkGuide /><span className="campus-tag"><span /> {t('BUILT AT UIUC')}</span></div></header>
     <main className="landing">
-      <h1 className="sr-only">Emergency help and walk companion</h1>
+      <h1 className="sr-only">{t('Emergency help and walk companion')}</h1>
       <EmergencyHold onRequest={emergencyRequest} onRetract={emergencyActions.retract}
         onRequestCancellation={emergencyActions.retract} onBusyChange={setEmergencyBusy}
         snapshot={snapshot} now={now} locationError={locationError} pollError={pollError}
         onRetryLocation={retryLocation} onShare={share} onStopSharing={() => setConfirmEnd(true)}
-        onReset={resetToStart} disabled={busy !== null} />
-      {confirmEnd && !ended && <section className="walk-shortcuts emergency-stop-confirm" aria-label="Confirm stopping location sharing">
-        <h2>Stop sharing your location?</h2>
-        <p>Your emergency request will stay open. The dispatcher keeps your last known location until they close it.</p>
+        onReset={resetToStart} messageControls={messageControls} disabled={busy !== null} />
+      {confirmEnd && !ended && <section className="walk-shortcuts emergency-stop-confirm" aria-label={t('Confirm stopping location sharing')}>
+        <h2>{t('Stop sharing your location?')}</h2>
+        <p>{t('Your emergency request will stay open. The dispatcher keeps your last known location until they close it.')}</p>
         <div className="walk-shortcut-buttons">
-          <button className="primary-button" disabled={busy !== null} onClick={() => void end()}>{busy === 'end' ? 'Stopping…' : 'Stop sharing'}</button>
-          <button className="secondary-button" disabled={busy !== null} onClick={() => setConfirmEnd(false)}>Keep sharing</button>
+          <button className="primary-button" disabled={busy !== null} onClick={() => void end()}>{busy === 'end' ? t('Stopping…') : t('Stop sharing')}</button>
+          <button className="secondary-button" disabled={busy !== null} onClick={() => setConfirmEnd(false)}>{t('Keep sharing')}</button>
         </div>
       </section>}
-      <section className="walk-shortcuts" aria-label="Start a walk">
-        {credentials ? <button className="secondary-button" disabled={busy !== null || emergencyBusy} onClick={viewWalk}>{ended ? 'View ended walk' : 'View walk & guardian link'} <Icon name="arrow" size={18} /></button> : <div className="walk-shortcut-buttons">
-          <button className="primary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('live')}><span><Icon name="pin" size={18} />{busy === 'live' ? 'Finding your location…' : 'Start a live walk'}</span><Icon name="arrow" size={18} /></button>
-          <button className="secondary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('demo')}><span>{busy === 'demo' ? 'Starting demo…' : 'Try a simulated walk'}</span><Icon name="arrow" size={18} /></button>
+      <section className="walk-shortcuts" aria-label={t('Start a walk')}>
+        {credentials ? <button className="secondary-button" disabled={busy !== null || emergencyBusy} onClick={viewWalk}>{ended ? t('View ended walk') : t('View walk & guardian link')} <Icon name="arrow" size={18} /></button> : <div className="walk-shortcut-buttons">
+          <button className="primary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('live')}><span><Icon name="pin" size={18} />{busy === 'live' ? t('Finding your location…') : t('Start a live walk')}</span><Icon name="arrow" size={18} /></button>
+          <button className="secondary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('demo')}><span>{busy === 'demo' ? t('Starting demo…') : t('Try a simulated walk')}</span><Icon name="arrow" size={18} /></button>
         </div>}
-        {!credentials && <p>Share your walk with someone you trust.</p>}
-        {copyNote && <p role="status">{copyNote}</p>}
-        {showLink && <input className="link-input" aria-label="Guardian link" readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}
-        {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+        {!credentials && <p>{t('Share your walk with someone you trust.')}</p>}
+        {copyNote && <p role="status">{t(copyNote)}</p>}
+        {showLink && <input className="link-input" aria-label={t('Guardian link')} readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}
+        {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{displayedError}</div>}
       </section>
     </main>
-    <footer className="footer"><span>GHOSTSIGNAL · A CAMPUS SAFETY PROTOTYPE</span><span>Location sharing works while this page stays active.</span></footer>
+    <footer className="footer"><span>{t('GHOSTSIGNAL · A CAMPUS SAFETY PROTOTYPE')}</span><span>{t('Location sharing works while this page stays active.')}</span></footer>
     </div>;
   }
 
@@ -526,42 +560,44 @@ function StudentApp() {
 
   if (ended) {
     return <div className="app">
-      <header className="app-bar"><Brand /></header>
+      <header className="app-bar"><Brand /><SettingsButton /></header>
       <main className="app-body">
-        <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><h1>{snapshot.endedReason === 'expired' ? 'Walk timed out.' : 'Walk ended.'}</h1><p>{incident && incident.status !== 'resolved' ? 'Live location updates have stopped. Your request is still open; the dispatcher keeps your last known location until they close it.' : 'Your location is no longer shared, and your saved details were deleted.'}</p>{incident && <button className="dark-button" onClick={openEmergency}>View request status <Icon name="arrow" size={17} /></button>}<button className="dark-button" onClick={resetToStart}>Start another walk <Icon name="arrow" size={17} /></button></div>
+        <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><h1>{snapshot.endedReason === 'expired' ? t('Walk timed out.') : t('Walk ended.')}</h1><p>{incident && incident.status !== 'resolved' ? t('Live location updates have stopped. Your request is still open; the dispatcher keeps your last known location until they close it.') : t('Your location is no longer shared, and your saved details were deleted.')}</p>{incident && <button className="dark-button" onClick={openEmergency}>{t('View request status')} <Icon name="arrow" size={17} /></button>}<button className="dark-button" onClick={resetToStart}>{t('Start another walk')} <Icon name="arrow" size={17} /></button></div>
       </main>
     </div>;
   }
 
   const location = snapshot.location;
   return <div className="app">
-    <header className="app-bar"><Brand /><span className="app-bar-meta"><i className={pollError || locationError ? 'bad' : ''} />{credentials.mode === 'demo' ? 'Demo · ' : ''}{elapsed(snapshot.startedAt, now)}</span></header>
+    <header className="app-bar"><Brand /><SettingsButton /><span className="app-bar-meta"><i className={pollError || locationError ? 'bad' : ''} />{credentials.mode === 'demo' ? t('Demo · ') : ''}{elapsed(snapshot.startedAt, now, locale)}</span></header>
     <main className="app-body walk-body">
-      {credentials.mode === 'demo' && <div className="demo-strip"><Icon name="eye" size={15} />Simulated walk. No device location is used.</div>}
+      {credentials.mode === 'demo' && <div className="demo-strip"><Icon name="eye" size={15} />{t('Simulated walk. No device location is used.')}</div>}
       <section className="walk-map">
         <SessionMap snapshot={snapshot} calm />
-        <div className="map-chip">{location ? `±${Math.round(location.accuracy)} m · ${relativeTime(location.recordedAt, now)}` : 'Finding GPS…'}</div>
+        <div className="map-chip">{location ? t('±{accuracy} m · {age}', { accuracy: Math.round(location.accuracy), age: relativeTime(location.recordedAt, now, locale) }) : t('Finding GPS…')}</div>
       </section>
-      {(pollError || locationError) && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />Updates delayed: {locationError || pollError}</div>}
-      {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+      {(pollError || locationError) && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />{t('Updates delayed: {error}', { error: t(locationError || pollError || '') })}</div>}
+      {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{displayedError}</div>}
       <section className="signal-card">
-        <button className="end-walk" onClick={openEmergency}><Icon name="alert" size={20} />{incident ? 'View request status' : 'Open emergency controls'}</button>
-        {helpRequested ? null : <HoldToCheckIn onSignal={() => void help()} disabled={busy === 'help'} />}
+        <button className="end-walk" onClick={openEmergency}><Icon name="alert" size={20} />{incident ? t('View request status') : t('Open emergency controls')}</button>
+        {helpRequested ? null : <><QuickMessages mode="prepare" selectedId={selectedPreset} onSelect={setSelectedPreset} disabled={busy !== null || quietHolding} /><HoldToCheckIn onSignal={() => void help(heldPreset.current)} onHoldStart={() => { heldPreset.current = selectedPreset; }} onBusyChange={setQuietHolding} disabled={busy === 'help'} /></>}
         {showQuietStatus && incident && <QuietStatus incident={incident} helpActive={helpRequested} onCancel={() => void retract()} cancelling={busy === 'retract'} />}
+        {canSendIncidentMessage && <Fold title={t('Quick messages')} summary={t('Send without speaking.')} icon="note"><QuickMessages mode="incident" selectedId={selectedPreset} onSelect={setSelectedPreset} onSend={sendQuickMessage} sent={incident?.messages ?? []} disabled={busy !== null} /></Fold>}
+        {!canSendIncidentMessage && incident && incident.messages.length > 0 && <ReceivedMessages messages={incident.messages} />}
       </section>
-      <Fold title="Share with someone you trust" summary="Optional. They’ll be notified if you check in." icon="link">
-        <p className="fold-text">They can follow your location and get a notification on their phone when you check in. They’ll be asked not to call or text you.</p>
-        <button className="dark-button" onClick={() => void share()}><span>{copyNote || 'Share private link'}</span><Icon name={copyNote === 'Link copied' ? 'check' : 'link'} size={18} /></button>
-        <a className="open-guardian" href={shareUrl} target="_blank" rel="noreferrer">Open guardian view <Icon name="external" size={16} /></a>
-        {showLink && <input className="link-input" aria-label="Guardian link" readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}
+      <Fold title={t('Share with someone you trust')} summary={t('Optional. They’ll be notified if you check in.')} icon="link">
+        <p className="fold-text">{t('They can follow your location and get a notification on their phone when you check in. They’ll be asked not to call or text you.')}</p>
+        <button className="dark-button" onClick={() => void share()}><span>{copyNote ? t(copyNote) : t('Share private link')}</span><Icon name={copyNote === 'Link copied' ? 'check' : 'link'} size={18} /></button>
+        <a className="open-guardian" href={shareUrl} target="_blank" rel="noreferrer">{t('Open guardian view')} <Icon name="external" size={16} /></a>
+        {showLink && <input className="link-input" aria-label={t('Guardian link')} readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}
       </Fold>
-      <Fold title="Help responders find you" summary={snapshot.descriptionProvided ? 'Description saved' : 'Optional. Add what you’re wearing.'} icon="user">
+      <Fold title={t('Help responders find you')} summary={snapshot.descriptionProvided ? t('Description saved') : t('Optional. Add what you’re wearing.')} icon="user">
         <ResponderDetails credentials={credentials} snapshot={snapshot} onSnapshot={next => setSnapshot(previous => newerSnapshot(previous, next))} />
       </Fold>
       {!confirmEnd
-        ? <button className="end-walk" disabled={busy !== null} onClick={() => setConfirmEnd(true)}><Icon name="heart" size={18} />I’ve arrived. End walk</button>
-        : <div className="end-confirm"><span>{helpRequested ? 'Ending stops live location. Campus Safety keeps your last location until they close the check-in.' : 'Stop sharing your location?'}</span><button className="dark-button" disabled={busy !== null} onClick={() => void end()}><span>{busy === 'end' ? 'Ending…' : 'End walk'}</span><Icon name="check" size={18} /></button><button className="text-button" onClick={() => setConfirmEnd(false)}>Keep walking</button></div>}
-      <p className="app-foot">Keep GhostSignal open while you walk. Updates may pause if the screen locks or you switch apps.</p>
+        ? <button className="end-walk" disabled={busy !== null} onClick={() => setConfirmEnd(true)}><Icon name="heart" size={18} />{t('I’ve arrived. End walk')}</button>
+        : <div className="end-confirm"><span>{helpRequested ? t('Ending stops live location. Campus Safety keeps your last location until they close the check-in.') : t('Stop sharing your location?')}</span><button className="dark-button" disabled={busy !== null} onClick={() => void end()}><span>{busy === 'end' ? t('Ending…') : t('End walk')}</span><Icon name="check" size={18} /></button><button className="text-button" onClick={() => setConfirmEnd(false)}>{t('Keep walking')}</button></div>}
+      <p className="app-foot">{t('Keep GhostSignal open while you walk. Updates may pause if the screen locks or you switch apps.')}</p>
     </main>
   </div>;
 }
@@ -572,29 +608,31 @@ function positionPayload(position: GeolocationPosition) {
 
 // Shows the guardian how far Campus Safety has progressed with the signal.
 function IncidentTracker({ incident, helpActive, now }: { incident: IncidentSummary; helpActive: boolean; now: number }) {
+  const { t, locale } = useI18n();
   const steps = [
-    { label: 'Signal sent', at: incident.openedAt, detail: `Ref ${incident.reference}` },
-    { label: 'Campus Safety has it', at: incident.acknowledgedAt, detail: 'Watching live location' },
-    { label: incident.unit ? `${incident.unit} on the way` : 'Responder on the way', at: incident.respondingAt, detail: 'Heading to live location' },
-    { label: 'Closed', at: incident.resolvedAt, detail: incident.outcome ? INCIDENT_OUTCOMES[incident.outcome] : '' },
+    { label: t('Signal sent'), at: incident.openedAt, detail: t('Ref {reference}', { reference: incident.reference }) },
+    { label: t('Campus Safety has it'), at: incident.acknowledgedAt, detail: t('Watching live location') },
+    { label: incident.unit ? t('{unit} on the way', { unit: incident.unit }) : t('Responder on the way'), at: incident.respondingAt, detail: t('Heading to live location') },
+    { label: t('Closed'), at: incident.resolvedAt, detail: incident.outcome ? t(INCIDENT_OUTCOMES[incident.outcome]) : '' },
   ];
   const current = steps.findIndex(step => !step.at);
   const waiting = incident.status === 'new' && now - Date.parse(incident.openedAt) > 60_000;
   return <section className={`tracker-card ${incident.status}`} aria-labelledby="tracker-title" aria-live="polite">
-    <span className="overline">CAMPUS SAFETY · {incident.reference}</span>
-    <h2 id="tracker-title">{incident.status === 'new' ? 'Delivered. Waiting for a dispatcher.' : incident.status === 'acknowledged' ? 'Campus Safety is watching.' : incident.status === 'responding' ? 'A responder is on the way.' : 'Closed.'}</h2>
+    <span className="overline">{t('CAMPUS SAFETY · {reference}', { reference: incident.reference })}</span>
+    <h2 id="tracker-title">{incident.status === 'new' ? t('Delivered. Waiting for a dispatcher.') : incident.status === 'acknowledged' ? t('Campus Safety is watching.') : incident.status === 'responding' ? t('A responder is on the way.') : t('Closed.')}</h2>
     <ol className="tracker-steps">
       {steps.map((step, index) => <li key={step.label} className={step.at ? 'done' : index === current ? 'current' : ''}>
         <span className="tracker-dot">{step.at ? <Icon name="check" size={13} /> : null}</span>
-        <div><strong>{step.label}</strong><span>{step.at ? `${clockTime(step.at)} · ${step.detail}` : index === current ? 'Waiting…' : ''}</span></div>
+        <div><strong>{step.label}</strong><span>{step.at ? t('{time} · {detail}', { time: clockTime(step.at, locale), detail: step.detail }) : index === current ? t('Waiting…') : ''}</span></div>
       </li>)}
     </ol>
-    {incident.status !== 'resolved' && !helpActive && <p className="tracker-note">The walker cancelled. Campus Safety will still check on them in person.</p>}
-    {waiting && <p className="tracker-warn"><Icon name="alert" size={16} />Not seen by a dispatcher yet. If you believe they’re in immediate danger, call 911 yourself and give this location. Don’t call the walker.</p>}
+    {incident.status !== 'resolved' && !helpActive && <p className="tracker-note">{t('The walker cancelled. Campus Safety will still check on them in person.')}</p>}
+    {waiting && <p className="tracker-warn"><Icon name="alert" size={16} />{t('Not seen by a dispatcher yet. If you believe they’re in immediate danger, call 911 yourself and give this location. Don’t call the walker.')}</p>}
   </section>;
 }
 
 function GuardianNote({ sessionId, token }: { sessionId: string; token: string }) {
+  const { t } = useI18n();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(0);
@@ -608,13 +646,13 @@ function GuardianNote({ sessionId, token }: { sessionId: string; token: string }
     finally { setBusy(false); }
   };
   return <form className="plan-card note-card" onSubmit={submit}>
-    <span className="overline">HELP CAMPUS SAFETY</span>
-    <h2>Share what you know</h2>
-    <p>This goes straight to the dispatcher, not to the walker.</p>
-    <label className="field"><span className="sr-only">Note for Campus Safety</span><textarea rows={3} maxLength={280} value={text} placeholder="Where they were headed, what they’re wearing, who they were with…" onChange={event => setText(event.target.value)} /></label>
-    <button className="dark-button" disabled={busy || !text.trim()}><span>{busy ? 'Sending…' : 'Send to Campus Safety'}</span><Icon name="arrow" size={18} /></button>
-    {sent > 0 && <p className="note-sent"><Icon name="check" size={15} />Sent to Campus Safety{sent > 1 ? ` (${sent})` : ''}.</p>}
-    {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+    <span className="overline">{t('HELP CAMPUS SAFETY')}</span>
+    <h2>{t('Share what you know')}</h2>
+    <p>{t('This goes straight to the dispatcher, not to the walker.')}</p>
+    <label className="field"><span className="sr-only">{t('Note for Campus Safety')}</span><textarea rows={3} maxLength={280} value={text} placeholder={t('Where they were headed, what they’re wearing, who they were with…')} onChange={event => setText(event.target.value)} /></label>
+    <button className="dark-button" disabled={busy || !text.trim()}><span>{busy ? t('Sending…') : t('Send to Campus Safety')}</span><Icon name="arrow" size={18} /></button>
+    {sent > 0 && <p className="note-sent"><Icon name="check" size={15} />{t('Sent to Campus Safety{count}.', { count: sent > 1 ? ` (${sent})` : '' })}</p>}
+    {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{t(error)}</div>}
   </form>;
 }
 
@@ -627,6 +665,7 @@ function urlBase64ToUint8Array(value: string) {
 
 // Registers this device for push notifications about one walk, and plays in-tab sounds.
 function useGuardianAlerts(sessionId: string, token: string, active: { help: boolean; stale: boolean; incidentStatus: string | null }) {
+  const { t } = useI18n();
   const supported = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const [pushState, setPushState] = useState<PushState>(supported ? 'checking' : 'unsupported');
   const [pushError, setPushError] = useState<string | null>(null);
@@ -683,33 +722,35 @@ function useGuardianAlerts(sessionId: string, token: string, active: { help: boo
     else if (active.incidentStatus !== before.incidentStatus && active.incidentStatus === 'responding') { setAnnouncement('A responder is on the way.'); playTones(audio.current, 2, 660); }
     else if (active.stale && !before.stale) { setAnnouncement('The walker’s location is over a minute old.'); playTones(audio.current, 1, 520); }
     previous.current = active;
-    const title = active.help ? 'Silent help signal' : active.stale ? 'Location stale' : null;
+    const title = active.help ? t('Silent help signal') : active.stale ? t('Location stale') : null;
     document.title = title ? `⚠ ${title} · GhostSignal` : baseTitle.current;
-  }, [active.help, active.stale, active.incidentStatus]);
+  }, [active.help, active.stale, active.incidentStatus, t]);
 
   useEffect(() => () => { document.title = baseTitle.current; }, []);
 
-  return { pushState, pushError, announcement, enable };
+  return { pushState, pushError, announcement: t(announcement), enable };
 }
 
 function TextStatus({ snapshot, now }: { snapshot: SessionSnapshot; now: number }) {
+  const { t, locale } = useI18n();
   const location = snapshot.location;
   const help = snapshot.status === 'help_requested';
-  const health = locationHealth(location, now);
+  const health = locationHealth(location, now, locale);
   return <div className="text-status">
-    <p className={`text-status-lead ${help ? 'warn' : ''}`}>{help ? 'Silent help signal.' : 'Walk in progress.'}</p>
+    <p className={`text-status-lead ${help ? 'warn' : ''}`}>{help ? t('Silent help signal.') : t('Walk in progress.')}</p>
     <dl>
-      <div><dt>Last update</dt><dd>{location ? `${relativeTime(location.recordedAt, now)} · ${health.label}` : 'Waiting for location'}</dd></div>
-      <div><dt>Movement</dt><dd>{movementSummary(location, snapshot.trail)}</dd></div>
-      {location && <div><dt>Accuracy</dt><dd>{accuracyLabel(location.accuracy)}</dd></div>}
-      {snapshot.incident && snapshot.incident.status !== 'resolved' && <div><dt>Campus Safety</dt><dd>{snapshot.incident.status === 'new' ? 'Delivered, not yet seen' : snapshot.incident.status === 'acknowledged' ? 'Watching' : `${snapshot.incident.unit ?? 'A responder'} on the way`}</dd></div>}
-      {location && <div><dt>Coordinates</dt><dd>{location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}</dd></div>}
+      <div><dt>{t('Last update')}</dt><dd>{location ? t('{age} · {status}', { age: relativeTime(location.recordedAt, now, locale), status: health.label }) : t('Waiting for location')}</dd></div>
+      <div><dt>{t('Movement')}</dt><dd>{movementSummary(location, snapshot.trail, locale)}</dd></div>
+      {location && <div><dt>{t('Accuracy')}</dt><dd>{accuracyLabel(location.accuracy, locale)}</dd></div>}
+      {snapshot.incident && snapshot.incident.status !== 'resolved' && <div><dt>{t('Campus Safety')}</dt><dd>{snapshot.incident.status === 'new' ? t('Delivered, not yet seen') : snapshot.incident.status === 'acknowledged' ? t('Watching') : t('{unit} on the way', { unit: snapshot.incident.unit ?? t('A responder') })}</dd></div>}
+      {location && <div><dt>{t('Coordinates')}</dt><dd>{location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}</dd></div>}
     </dl>
-    {location && <a className="text-status-link" href={mapLink(location)} target="_blank" rel="noreferrer">Open this location in a map <Icon name="external" size={18} /></a>}
+    {location && <a className="text-status-link" href={mapLink(location)} target="_blank" rel="noreferrer">{t('Open this location in a map')} <Icon name="external" size={18} /></a>}
   </div>;
 }
 
 function GuardianApp({ sessionId }: { sessionId: string }) {
+  const { t, locale } = useI18n();
   const token = safeDecode(window.location.hash.slice(1));
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -751,7 +792,7 @@ function GuardianApp({ sessionId }: { sessionId: string }) {
 
   const ended = snapshot?.status === 'ended';
   const help = snapshot?.status === 'help_requested';
-  const health = locationHealth(snapshot?.location, now);
+  const health = locationHealth(snapshot?.location, now, locale);
   const incident = snapshot?.incident ?? null;
   const incidentOpen = Boolean(incident && incident.status !== 'resolved');
   const alerts = useGuardianAlerts(sessionId, token, { help: Boolean(help), stale: Boolean(snapshot && !ended && health.level === 'stale'), incidentStatus: incident?.status ?? null });
@@ -759,51 +800,52 @@ function GuardianApp({ sessionId }: { sessionId: string }) {
 
   return <div className={`app watch-app ${help ? 'alerting' : ''}`}>
     <div className="sr-only" role="alert" aria-live="assertive">{alerts.announcement}</div>
-    <header className="app-bar"><Brand /><span className="app-bar-meta"><Icon name="eye" size={15} />Guardian</span></header>
+    <header className="app-bar"><Brand /><SettingsButton /><span className="app-bar-meta"><Icon name="eye" size={15} />{t('Guardian')}</span></header>
     <main className="app-body">
-      {!token && <div className="restore-card"><span className="round-icon"><Icon name="link" size={22} /></span><h1>Link incomplete.</h1><p>Ask the walker to share the full link again.</p></div>}
-      {token && error && !snapshot && <div className="restore-card"><span className="round-icon"><Icon name="alert" size={22} /></span><h1>Couldn’t load this walk.</h1><p>{error}</p></div>}
-      {token && !error && !snapshot && <div className="loading-view"><span className="loader" />Connecting…</div>}
+      {!token && <div className="restore-card"><span className="round-icon"><Icon name="link" size={22} /></span><h1>{t('Link incomplete.')}</h1><p>{t('Ask the walker to share the full link again.')}</p></div>}
+      {token && error && !snapshot && <div className="restore-card"><span className="round-icon"><Icon name="alert" size={22} /></span><h1>{t('Couldn’t load this walk.')}</h1><p>{t(error)}</p></div>}
+      {token && !error && !snapshot && <div className="loading-view"><span className="loader" />{t('Connecting…')}</div>}
       {snapshot && <>
         <section className="watch-hero">
-          <span className={`watch-badge ${ended ? 'ended' : help ? 'help' : ''}`}><span />{ended ? 'WALK ENDED' : help ? 'SILENT HELP SIGNAL' : 'WALK IN PROGRESS'}</span>
-          <h1>{ended ? snapshot.endedReason === 'expired' ? 'This walk timed out.' : 'This walk has ended.' : help ? 'They quietly asked for help.' : 'You’re following a walk.'}</h1>
-          {!ended && !help && <p>You’ll get a notification if they check in for help.</p>}
+          <span className={`watch-badge ${ended ? 'ended' : help ? 'help' : ''}`}><span />{ended ? t('WALK ENDED') : help ? t('SILENT HELP SIGNAL') : t('WALK IN PROGRESS')}</span>
+          <h1>{ended ? snapshot.endedReason === 'expired' ? t('This walk timed out.') : t('This walk has ended.') : help ? t('They quietly asked for help.') : t('You’re following a walk.')}</h1>
+          {!ended && !help && <p>{t('You’ll get a notification if they check in for help.')}</p>}
         </section>
-        {snapshot.mode === 'demo' && <div className="demo-strip"><Icon name="eye" size={15} />Simulated walk for a demo.</div>}
+        {snapshot.mode === 'demo' && <div className="demo-strip"><Icon name="eye" size={15} />{t('Simulated walk for a demo.')}</div>}
         {help && !ended && <section className="guardian-alert" role="status">
-          <strong><Icon name="x" size={18} />Don’t call or text them</strong>
-          <p>They used a silent signal because they can’t safely talk right now. A ringing phone or a message on their screen could alert whoever they’re worried about.</p>
-          <p>Campus Safety is notified and can see their live location.</p>
+          <strong><Icon name="x" size={18} />{t('Don’t call or text them')}</strong>
+          <p>{t('They sent a silent help request. Calling or texting may be unsafe or inaccessible for them. Follow the dispatcher updates here.')}</p>
+          <p>{t('Campus Safety is notified and can see their live location.')}</p>
         </section>}
+        {incident && <ReceivedMessages messages={incident.messages} audience="guardian" />}
         {!ended && incident && (help || incidentOpen) && <IncidentTracker incident={incident} helpActive={Boolean(help)} now={now} />}
         {!ended && incidentOpen && <GuardianNote sessionId={sessionId} token={token} />}
         {!ended && alerts.pushState !== 'on' && <section className="notify-card" aria-labelledby="notify-title">
           <span className="notify-icon"><Icon name="bell" size={22} /></span>
           <div>
-            <h2 id="notify-title">Get notified on this phone</h2>
-            <p>{alerts.pushState === 'unsupported' ? isApple ? 'On iPhone, add this page to your Home Screen first: tap Share, then “Add to Home Screen,” and open the link from there.' : 'This browser can’t receive notifications. Keep this page open to hear an alert.' : alerts.pushState === 'blocked' ? 'Notifications are blocked for this site. Allow them in your browser settings.' : 'Know the moment they check in for help, even when this page is closed.'}</p>
-            {alerts.pushError && <p className="notify-error">{alerts.pushError}</p>}
+            <h2 id="notify-title">{t('Get notified on this phone')}</h2>
+            <p>{alerts.pushState === 'unsupported' ? isApple ? t('On iPhone, add this page to your Home Screen first: tap Share, then “Add to Home Screen,” and open the link from there.') : t('This browser can’t receive notifications. Keep this page open to hear an alert.') : alerts.pushState === 'blocked' ? t('Notifications are blocked for this site. Allow them in your browser settings.') : t('Know the moment they check in for help, even when this page is closed.')}</p>
+            {alerts.pushError && <p className="notify-error">{t(alerts.pushError)}</p>}
           </div>
-          <button className="dark-button" disabled={alerts.pushState === 'working' || alerts.pushState === 'checking'} onClick={() => void alerts.enable()}><span>{alerts.pushState === 'working' ? 'Turning on…' : alerts.pushState === 'unsupported' ? 'Turn on alert sound' : 'Turn on notifications'}</span><Icon name="bell" size={18} /></button>
+          <button className="dark-button" disabled={alerts.pushState === 'working' || alerts.pushState === 'checking'} onClick={() => void alerts.enable()}><span>{alerts.pushState === 'working' ? t('Turning on…') : alerts.pushState === 'unsupported' ? t('Turn on alert sound') : t('Turn on notifications')}</span><Icon name="bell" size={18} /></button>
         </section>}
-        {ended ? <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><p>Location and route details are no longer available through this link.</p></div> : <>
+        {ended ? <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><p>{t('Location and route details are no longer available through this link.')}</p></div> : <>
           <section className="watch-map-card">
             <div className="watch-map-head">
-              <span className={`fresh ${error ? 'stale' : health.level}`}>{error ? 'Connection interrupted' : snapshot.location ? `Updated ${relativeTime(snapshot.location.recordedAt, now)}` : 'Waiting for location'}</span>
-              <button className="toolbar-button small" onClick={toggleTextView} aria-pressed={textView}><Icon name={textView ? 'pin' : 'eye'} size={16} />{textView ? 'Map' : 'Text only'}</button>
+              <span className={`fresh ${error ? 'stale' : health.level}`}>{error ? t('Connection interrupted') : snapshot.location ? t('Updated {age}', { age: relativeTime(snapshot.location.recordedAt, now, locale) }) : t('Waiting for location')}</span>
+              <button className="toolbar-button small" onClick={toggleTextView} aria-pressed={textView}><Icon name={textView ? 'pin' : 'eye'} size={16} />{textView ? t('Map') : t('Text only')}</button>
             </div>
             {textView ? <TextStatus snapshot={snapshot} now={now} /> : <SessionMap snapshot={snapshot} />}
           </section>
-          {alerts.pushState === 'on' && <p className="notify-on"><Icon name="check" size={15} />Notifications on for this phone{snapshot.textAlertsEnabled ? ' · text alerts on' : ''}</p>}
-          {!error && health.level === 'stale' && <div className="quiet-warning" role="status"><Icon name="clock" size={15} />Location is over a minute old. Their phone may be locked, offline, or out of battery.</div>}
-          {error && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />Updates interrupted: {error}</div>}
-          <Fold title="Walk details" icon="clock">
-            <div className="detail-row"><span>Started</span><strong>{new Date(snapshot.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</strong></div>
-            <div className="detail-row"><span>Accuracy</span><strong>{snapshot.location ? accuracyLabel(snapshot.location.accuracy) : '—'}</strong></div>
-            <div className="detail-row"><span>Movement</span><strong>{movementSummary(snapshot.location, snapshot.trail)}</strong></div>
-            <div className="detail-row"><span>View refreshed</span><strong>{relativeTime(lastCheckedAt, now)}</strong></div>
-            <p className="fold-text">Positions arrive while the walker’s app is open. Campus Safety status comes from the prototype dispatch console. OpenStreetMap receives the map area your browser loads.</p>
+          {alerts.pushState === 'on' && <p className="notify-on"><Icon name="check" size={15} />{t('Notifications on for this phone')}{snapshot.textAlertsEnabled ? t(' · text alerts on') : ''}</p>}
+          {!error && health.level === 'stale' && <div className="quiet-warning" role="status"><Icon name="clock" size={15} />{t('Location is over a minute old. Their phone may be locked, offline, or out of battery.')}</div>}
+          {error && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />{t('Updates interrupted: {error}', { error: t(error) })}</div>}
+          <Fold title={t('Walk details')} icon="clock">
+            <div className="detail-row"><span>{t('Started')}</span><strong>{new Date(snapshot.startedAt).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}</strong></div>
+            <div className="detail-row"><span>{t('Accuracy')}</span><strong>{snapshot.location ? accuracyLabel(snapshot.location.accuracy, locale) : '—'}</strong></div>
+            <div className="detail-row"><span>{t('Movement')}</span><strong>{movementSummary(snapshot.location, snapshot.trail, locale)}</strong></div>
+            <div className="detail-row"><span>{t('View refreshed')}</span><strong>{relativeTime(lastCheckedAt, now, locale)}</strong></div>
+            <p className="fold-text">{t('Positions arrive while the walker’s app is open. Campus Safety status comes from the prototype dispatch console. OpenStreetMap receives the map area your browser loads.')}</p>
           </Fold>
         </>}
       </>}

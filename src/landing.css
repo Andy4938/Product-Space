@@ -13,7 +13,7 @@
   --panel: rgba(16, 30, 47, .88);
 }
 .landing-site * { box-sizing: border-box; }
-.landing-site { margin: 0; min-width: 320px; }
+.landing-site { margin: 0; min-width: 0; }
 .landing-site button, .landing-site input { font: inherit; }
 .landing-site button { cursor: pointer; }
 .landing-site button:disabled { cursor: wait; opacity: .6; }
@@ -398,3 +398,32 @@
 .landing-site .emergency-stop-confirm h2 { color: #f4e4bd; font-size: 18px; font-weight: 650; margin: 0 0 7px; }
 .landing-site .emergency-stop-confirm p { color: #bdc9d9; font-size: 12px; line-height: 1.6; margin: 0 0 15px; }
 .landing-site .emergency-stop-confirm .walk-shortcut-buttons { gap: 10px; }
+
+/* Keep the emergency action and the walk choices usable on narrow phones. */
+@media (max-width: 480px) {
+  .site-shell.landing-site .topbar { height: calc(62px + env(safe-area-inset-top)); min-height: 0; flex-wrap: nowrap; gap: 6px; padding: env(safe-area-inset-top) 16px 0; }
+  .landing-site .brand-lockup { flex: none; }
+  .landing-site .brand { font-size: clamp(16px, 5vw, 19px); gap: 7px; }
+  .landing-site .brand-mark { width: 26px; height: 26px; flex: none; }
+  .site-shell.landing-site .topbar-right { width: auto; min-width: 0; margin-left: auto; display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 5px; }
+  .landing-site .guide-trigger { width: 42px; min-width: 42px; min-height: 42px; padding: 0; justify-content: center; font-size: 0; }
+  .landing-site .guide-trigger::before { content: '?'; font-size: 20px; line-height: 1; font-weight: 600; }
+  .landing-site .guide-trigger svg { display: none; }
+  .landing-site .landing { gap: 14px; padding: 16px; }
+  .landing-site .emergency-orb { width: min(300px, 38svh, calc(100vw - 32px)); max-width: 100%; padding: 17px; }
+  .landing-site .orb-content { gap: 7px; }
+  .landing-site .orb-icon { width: 29px; height: 29px; }
+  .landing-site .orb-title { font-size: clamp(26px, 8vw, 34px); line-height: 1.08; overflow-wrap: anywhere; }
+  .landing-site .orb-hint { font-size: 12px; }
+  .landing-site .hold-status { margin-top: 7px; max-width: 290px; font-size: 11px; }
+  .landing-site .walk-shortcut-buttons { gap: 8px; }
+  .landing-site .walk-shortcuts .primary-button, .landing-site .walk-shortcuts .secondary-button { min-height: 48px; padding: 9px 12px; font-size: 12px; line-height: 1.3; }
+  .landing-site .walk-shortcuts > p { margin-top: 7px; font-size: 11px; }
+  .landing-site .emergency-status-card { padding: 17px 15px; }
+  .landing-site .emergency-status-card h1 { font-size: clamp(25px, 7.5vw, 31px); margin-top: 16px; overflow-wrap: anywhere; }
+  .landing-site .emergency-status-summary { font-size: 12px; margin-bottom: 16px; }
+  .landing-site .emergency-location { padding: 13px; }
+  .landing-site .emergency-milestones { margin: 17px 0; }
+  .landing-site .emergency-milestones li { min-height: 43px; }
+  .landing-site .footer { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
+}

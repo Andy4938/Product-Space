@@ -13,7 +13,7 @@ function snapshot(status: IncidentStatus = 'new'): SessionSnapshot {
     helpRequestedAt: '2026-01-01T12:01:00.000Z', endedReason: null, location: null, trail: [],
     textAlertsEnabled: false, descriptionProvided: false,
     incident: {
-      id: 'incident', reference: 'GS-102', status, openedAt: '2026-01-01T12:01:00.000Z',
+      id: 'incident', reference: 'GS-102', status, messages: [], openedAt: '2026-01-01T12:01:00.000Z',
       acknowledgedAt: status === 'new' ? null : '2026-01-01T12:02:00.000Z',
       respondingAt: status === 'responding' || status === 'resolved' ? '2026-01-01T12:03:00.000Z' : null,
       unit: null, resolvedAt: status === 'resolved' ? '2026-01-01T12:04:00.000Z' : null,

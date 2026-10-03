@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -328,6 +329,143 @@ test('a help press opens a Campus Safety incident the dispatcher can acknowledge
   assert.equal(repeatedSecond.incident?.id, second.incident?.id);
   assert.equal(repeatedSecond.updatedAt, second.updatedAt);
   assert.equal((await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents.length, 2);
+});
+
+test('an initial preset is validated and recorded once with the help transition for guardian and dispatch', async (t) => {
+  const { base, clock, dbPath } = setup(t);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  const clientMessageId = randomUUID();
+  const initial = { presetId: 'being_followed', clientMessageId };
+  assert.equal((await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: { ...initial, text: 'arbitrary text' } })).status, 400);
+  assert.equal((await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: { ...initial, presetId: 'made_up' } })).status, 400);
+  assert.equal((await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: { ...initial, clientMessageId: 'bad' } })).status, 400);
+  assert.equal((await json<SessionSnapshot>(base, path, { token: created.ownerToken })).body.incident, null);
+
+  const sent = await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: initial });
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.status, 'help_requested');
+  assert.deepEqual(sent.body.incident?.messages, [{ id: clientMessageId, presetId: 'being_followed', sentAt: new Date(clock.now).toISOString() }]);
+  assert.deepEqual((await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: initial })).body, sent.body);
+  assert.equal((await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: { ...initial, presetId: 'cannot_talk' } })).status, 409);
+  assert.equal((await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: { ...initial, clientMessageId: randomUUID() } })).status, 409);
+
+  const guardian = (await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body;
+  assert.deepEqual(guardian.incident?.messages, sent.body.incident?.messages);
+  const dispatch = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.deepEqual(dispatch.messages, sent.body.incident?.messages);
+  await json(base, `/api/dispatch/incidents/${dispatch.id}/notes`, { method: 'POST', token: DISPATCH_CODE, body: { text: 'PRIVATE DISPATCH NOTE' } });
+  assert.equal(JSON.stringify((await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body).includes('PRIVATE DISPATCH NOTE'), false);
+
+  const restored = new SessionStore(dbPath, () => clock.now);
+  try {
+    assert.deepEqual(restored.read(created.sessionId, created.ownerToken).incident?.messages, sent.body.incident?.messages);
+  } finally {
+    restored.close();
+  }
+});
+
+test('a delayed initial preset retry cannot re-escalate a cancelled or resolved incident', async (t) => {
+  const recorder = recordingNotifier();
+  const { base } = setup(t, recorder);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  await json(base, `${path}/contacts`, { method: 'POST', token: created.ownerToken, body: { guardianPhone: '+12175550123' } });
+  const initial = { presetId: 'cannot_talk', clientMessageId: randomUUID() };
+  const help = (input: unknown) => json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: input });
+  const first = await help(initial);
+  const originalIncidentId = first.body.incident!.id;
+  assert.equal(recorder.sms.length, 1);
+
+  const cancelled = (await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken })).body;
+  assert.equal(cancelled.status, 'active');
+  assert.ok(cancelled.incident?.walkerCancelledAt);
+  assert.equal(recorder.sms.length, 2);
+  const delayedAfterCancel = await help(initial);
+  assert.equal(delayedAfterCancel.status, 200);
+  assert.deepEqual(delayedAfterCancel.body, cancelled);
+  assert.equal(recorder.sms.length, 2);
+  const dispatchPath = `/api/dispatch/incidents/${originalIncidentId}`;
+  const original = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.deepEqual(original.events.map(event => event.kind), ['opened', 'walker_cancelled']);
+
+  await json(base, `${dispatchPath}/resolve`, { method: 'POST', token: DISPATCH_CODE, body: { outcome: 'no_threat_on_scene' } });
+  assert.equal(recorder.sms.length, 3);
+  const delayedAfterResolve = await help(initial);
+  assert.equal(delayedAfterResolve.body.status, 'active');
+  assert.equal(delayedAfterResolve.body.incident?.status, 'resolved');
+  assert.equal(delayedAfterResolve.body.incident?.id, originalIncidentId);
+  assert.equal(recorder.sms.length, 3);
+  assert.equal((await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents.length, 1);
+
+  const fresh = await help({ presetId: 'cannot_talk', clientMessageId: randomUUID() });
+  assert.equal(fresh.body.status, 'help_requested');
+  assert.notEqual(fresh.body.incident?.id, originalIncidentId);
+  assert.equal(recorder.sms.length, 4);
+  assert.equal((await help(initial)).status, 409);
+  assert.equal((await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents.length, 2);
+});
+
+test('standalone preset messages enforce owner access, exact UUID retries, rate limit, and bounded ordered history', async (t) => {
+  const { base, clock } = setup(t);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  const messagesPath = `${path}/messages`;
+  const body = { presetId: 'cannot_talk', clientMessageId: randomUUID() };
+  const send = (input: unknown, token = created.ownerToken) => json<SessionSnapshot>(base, messagesPath, { method: 'POST', token, body: input });
+  assert.equal((await send(body)).status, 409);
+  await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+  assert.equal((await send(body, created.guardianToken)).status, 403);
+  assert.equal((await send({ ...body, presetId: 'custom_message' })).status, 400);
+  assert.equal((await send({ ...body, clientMessageId: 'not-a-uuid' })).status, 400);
+  assert.equal((await send({ ...body, text: 'raw text' })).status, 400);
+
+  const first = await send(body);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.incident?.messages.length, 1);
+  const firstDispatch = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.deepEqual(firstDispatch.messages, first.body.incident?.messages);
+  const retry = await send(body);
+  assert.equal(retry.status, 200);
+  assert.deepEqual(retry.body, first.body);
+  assert.equal((await send({ ...body, presetId: 'need_medical_help' })).status, 409);
+  assert.equal((await send({ presetId: 'need_escort', clientMessageId: randomUUID() })).status, 429);
+  const ids = [body.clientMessageId];
+  for (let index = 0; index < 20; index++) {
+    clock.now += 2000;
+    const nextId = randomUUID();
+    ids.push(nextId);
+    assert.equal((await send({ presetId: 'need_escort', clientMessageId: nextId })).status, 200);
+  }
+  const current = (await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body;
+  assert.deepEqual(current.incident?.messages.map(message => message.id), ids.slice(-20));
+  const dispatch = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.deepEqual(dispatch.messages, current.incident?.messages);
+  assert.equal(current.incident?.messages.some(message => message.id === body.clientMessageId), false);
+  assert.deepEqual((await send(body)).body, current);
+  assert.equal((await send({ ...body, presetId: 'need_escort' })).status, 409);
+});
+
+test('preset sends reject cancelled, resolved, ended, and old-incident message IDs', async (t) => {
+  const { base } = setup(t);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  const body = { presetId: 'need_medical_help', clientMessageId: randomUUID() };
+  const send = (input: unknown = body) => json<SessionSnapshot>(base, `${path}/messages`, { method: 'POST', token: created.ownerToken, body: input });
+  await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+  assert.equal((await send()).status, 200);
+  await json(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken });
+  assert.equal((await send({ presetId: 'need_escort', clientMessageId: randomUUID() })).status, 409);
+  await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+  const oldIncidentId = (await json<SessionSnapshot>(base, path, { token: created.ownerToken })).body.incident!.id;
+  await json(base, `/api/dispatch/incidents/${oldIncidentId}/resolve`, { method: 'POST', token: DISPATCH_CODE, body: { outcome: 'no_threat_on_scene' } });
+  assert.equal((await send({ presetId: 'need_escort', clientMessageId: randomUUID() })).status, 409);
+  const fresh = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: created.ownerToken })).body;
+  assert.notEqual(fresh.incident?.id, oldIncidentId);
+  assert.equal((await send()).status, 409);
+  assert.deepEqual(fresh.incident?.messages, []);
+  await json(base, `${path}/end`, { method: 'POST', token: created.ownerToken });
+  assert.equal((await send({ presetId: 'cannot_talk', clientMessageId: randomUUID() })).status, 409);
 });
 
 test('ending or expiring a walk keeps the last known location for an open incident until it is closed', async (t) => {
