@@ -1,3 +1,5 @@
+import { EmergencyHold } from './EmergencyHold';
+import './landing.css';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, ZoomControl, useMap } from 'react-leaflet';
 import { INCIDENT_OUTCOMES, type ContactsInput, type IncidentStatus, type IncidentSummary, type SessionSnapshot } from './api-types';
@@ -28,6 +30,25 @@ function newerSnapshot(previous: SessionSnapshot | null, next: SessionSnapshot):
 function safeDecode(value: string) {
   try { return decodeURIComponent(value); } catch { return ''; }
 }
+
+function WalkGuide() {
+  const dialog = useRef<HTMLDialogElement>(null);
+  return <>
+    <button className="guide-trigger" onClick={() => dialog.current?.showModal()}>How it works <Icon name="arrow" size={15} /></button>
+    <dialog ref={dialog} className="walk-guide" aria-labelledby="guide-title">
+      <div className="guide-top"><span className="overline">A LITTLE CLOSER, EVEN FROM AFAR</span><button className="icon-button" aria-label="Close guide" onClick={() => dialog.current?.close()}><Icon name="x" /></button></div>
+      <h2 id="guide-title">Your walk. Your people.</h2>
+      <ol className="guide-steps">
+        <li><Icon name="pin" /><div><strong>Start your walk</strong><p>Allow location access, or explore a simulated UIUC walk without using your GPS.</p></div></li>
+        <li><Icon name="link" /><div><strong>Bring someone along</strong><p>Send the private guardian link to someone you trust. Anyone with the link can view your location and status.</p></div></li>
+        <li><Icon name="shield" /><div><strong>Stay connected</strong><p>Keep this page open and your screen unlocked. A quiet help signal updates the guardian dashboard; it does not send notifications or contact emergency services.</p></div></li>
+      </ol>
+      <div className="guide-note"><Icon name="clock" size={17} />End sharing whenever you choose. Sessions expire after two hours.</div>
+      <button className="primary-button" onClick={() => dialog.current?.close()}>Got it. Let’s walk. <Icon name="arrow" /></button>
+    </dialog>
+  </>;
+}
+
 
 function readOwner(): OwnerCredentials | null {
   try {
@@ -396,26 +417,21 @@ function StudentApp() {
   const showQuietStatus = Boolean(incident && (helpRequested || incident.status !== 'resolved'));
 
   if (!credentials) {
-    return <div className="app">
-      <header className="app-bar"><Brand /><span className="proto-pill">Prototype</span></header>
-      <main className="app-body landing-body">
-        <section className="intro">
-          <h1>Get help without making a scene.</h1>
-          <p>Campus emergency phones mean running to a pole and making a call where everyone can see. GhostSignal lets you quietly alert Campus Safety from your pocket, without letting anyone know you noticed them.</p>
-        </section>
-        <ol className="how-list">
-          <li><b>1</b><div><strong>Start a walk</strong><span>Your location is shared only while the walk is on.</span></div></li>
-          <li><b>2</b><div><strong>Press and hold “Check in”</strong><span>Campus Safety gets your live location. Your screen barely changes, so nobody nearby can tell.</span></div></li>
-          <li><b>3</b><div><strong>Feel for updates</strong><span>Short vibrations tell you a dispatcher has seen it and when someone is on the way. No calls, no texts, no need to look.</span></div></li>
-        </ol>
-        <div className="landing-actions">
-          <button className="primary-button" disabled={busy !== null} onClick={() => void start('live')}><span>{busy === 'live' ? 'Finding your location…' : 'Start a walk'}</span><Icon name="arrow" /></button>
-          <button className="secondary-button" disabled={busy !== null} onClick={() => void start('demo')}><span>Try a simulated walk</span><Icon name="arrow" size={18} /></button>
-          <p className="demo-disclosure">The simulated walk uses a labeled demo route, not your location.</p>
-          {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+    return <div className="site-shell landing-site">
+    <header className="topbar"><div className="brand-lockup"><Brand /><span className="brand-descriptor">YOUR QUIET CONNECTION</span></div><div className="topbar-right"><WalkGuide /><span className="campus-tag"><span /> BUILT AT UIUC</span></div></header>
+    <main className="landing">
+      <h1 className="sr-only">Emergency help and walk companion</h1>
+      <EmergencyHold />
+      <section className="walk-shortcuts" aria-label="Start a walk">
+        <div className="walk-shortcut-buttons">
+          <button className="primary-button" disabled={busy !== null} onClick={() => void start('live')}><span><Icon name="pin" size={18} />{busy === 'live' ? 'Finding your location…' : 'Start a live walk'}</span><Icon name="arrow" size={18} /></button>
+          <button className="secondary-button" disabled={busy !== null} onClick={() => void start('demo')}><span>{busy === 'demo' ? 'Starting demo…' : 'Try a simulated walk'}</span><Icon name="arrow" size={18} /></button>
         </div>
-        <p className="proto-note"><Icon name="alert" size={15} />Prototype: the Campus Safety console is not monitored by UIUC Police. If you can safely call, 911 is still the fastest way to get help.</p>
-      </main>
+        <p>Share your walk with someone you trust.</p>
+        {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+      </section>
+    </main>
+    <footer className="footer"><span>GHOSTSIGNAL · A CAMPUS SAFETY PROTOTYPE</span><span>Location sharing works while this page stays active.</span></footer>
     </div>;
   }
 
