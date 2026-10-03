@@ -3,10 +3,13 @@ import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, ZoomControl, u
 import type { SessionSnapshot } from './api-types';
 import { ApiRequestError, endSession, getSession, postLocation, requestHelp, retractHelp, startSession, type OwnerCredentials } from './api';
 import { demoLocation } from './demoPath';
+import { createLocationUploader } from './location-upload';
+import { startLocationWatch } from './location-watch';
 
 const STORAGE_KEY = 'ghostsignal-owner-v1';
 const CAMPUS_CENTER: [number, number] = [40.1077, -88.2274];
 const POLL_MS = 2000;
+const GUARDIAN_POLL_MS = 1000;
 const STATUS_RANK = { active: 0, help_requested: 1, ended: 2 };
 
 function newerSnapshot(previous: SessionSnapshot | null, next: SessionSnapshot): SessionSnapshot {
@@ -149,6 +152,7 @@ function StudentApp() {
   const demoIndex = useRef(0);
   const startLock = useRef(false);
   const lastAcceptedFixAt = useRef(0);
+  const trackingActive = Boolean(snapshot && snapshot.status !== 'ended' && !ownerInvalid);
 
   useEffect(() => {
     if (!credentials || ownerInvalid) return;
@@ -169,53 +173,55 @@ function StudentApp() {
     };
     void poll();
     const timer = window.setInterval(poll, POLL_MS);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    const refresh = () => { if (document.visibilityState === 'visible') void poll(); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      cancelled = true; window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('focus', refresh);
+    };
   }, [credentials, ownerInvalid]);
 
   useEffect(() => {
-    if (!credentials || credentials.mode !== 'live' || !snapshot || snapshot.status === 'ended') return;
-    let active = true;
-    let inFlight = false;
-    let latest: ReturnType<typeof positionPayload> | null = null;
-    let lastSentAt = Date.now();
-    const flush = async () => {
-      if (!latest || inFlight || !active) return;
-      if (Date.parse(latest.recordedAt) <= lastAcceptedFixAt.current) { latest = null; return; }
-      if (Date.now() - lastSentAt < 2100) return;
-      if (Date.now() - Date.parse(latest.recordedAt) > 105_000) { latest = null; setLocationError('The latest position is too old. Waiting for a fresh GPS fix.'); return; }
-      inFlight = true;
-      const payload = latest;
-      latest = null;
-      let succeeded = false;
-      try {
-        const next = await postLocation(credentials.sessionId, credentials.ownerToken, payload);
-        lastAcceptedFixAt.current = Math.max(lastAcceptedFixAt.current, Date.parse(payload.recordedAt));
-        lastSentAt = Date.now();
-        succeeded = true;
-        if (active) { setSnapshot(previous => newerSnapshot(previous, next)); setLocationError(null); }
-      } catch (cause) {
-        if (active) {
-          if (cause instanceof ApiRequestError && cause.status === 409) {
-            // A cached GPS fix may duplicate the first accepted position.
-            setLocationError(null);
-          } else {
-            latest = latest || payload;
-            setLocationError((cause as Error).message);
-          }
-        }
-      } finally {
-        inFlight = false;
-        if (latest && active && succeeded) window.setTimeout(flush, 1000);
-      }
+    if (!credentials || credentials.mode !== 'live' || !trackingActive) return;
+    const uploader = createLocationUploader({
+      send: (point: ReturnType<typeof positionPayload>) => postLocation(credentials.sessionId, credentials.ownerToken, point),
+      getAcceptedRecordedAt: () => lastAcceptedFixAt.current,
+      // The first position was sent by start(), or was just restored from the server.
+      initialLastSuccessAt: Date.now(),
+      onSuccess: (next, point) => {
+        lastAcceptedFixAt.current = Math.max(lastAcceptedFixAt.current, Date.parse(point.recordedAt));
+        setSnapshot(previous => newerSnapshot(previous, next));
+        setLocationError(null);
+      },
+      onError: cause => {
+        // A duplicate or an ended session is resolved by the next status poll.
+        if (!(cause instanceof ApiRequestError && cause.status === 409)) setLocationError((cause as Error).message);
+      },
+      shouldRetry: cause => !(cause instanceof ApiRequestError) || cause.status === 429 || cause.status >= 500,
+    });
+    const watch = startLocationWatch({
+      geolocation: navigator.geolocation,
+      onPosition: position => uploader.push(positionPayload(position)),
+      onError: cause => setLocationError(cause instanceof Error ? cause.message : geolocationError(cause)),
+      isVisible: () => document.visibilityState === 'visible',
+    });
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      watch.refresh();
+      uploader.retry();
     };
-    const id = navigator.geolocation.watchPosition(
-      position => { latest = positionPayload(position); void flush(); },
-      geoError => { if (active) setLocationError(geolocationError(geoError)); },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
-    );
-    const retry = window.setInterval(() => { if (latest) void flush(); }, 2000);
-    return () => { active = false; navigator.geolocation.clearWatch(id); window.clearInterval(retry); };
-  }, [credentials, snapshot?.status]);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    return () => {
+      watch.stop(); uploader.stop();
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+    };
+  }, [credentials, trackingActive]);
 
   useEffect(() => {
     if (!credentials || credentials.mode !== 'demo' || !snapshot || snapshot.status === 'ended') return;
@@ -245,10 +251,12 @@ function StudentApp() {
       const created = await startSession(mode);
       const owner = { sessionId: created.sessionId, ownerToken: created.ownerToken, guardianToken: created.guardianToken, mode: created.session.mode };
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(owner));
-      setCredentials(owner); setSnapshot(created.session);
-      window.scrollTo(0, 0);
-      try { const next = await postLocation(owner.sessionId, owner.ownerToken, first); lastAcceptedFixAt.current = Date.parse(first.recordedAt); setSnapshot(previous => newerSnapshot(previous, next)); }
+      let initial = created.session;
+      lastAcceptedFixAt.current = 0;
+      try { initial = await postLocation(owner.sessionId, owner.ownerToken, first); lastAcceptedFixAt.current = Date.parse(first.recordedAt); }
       catch (cause) { setLocationError((cause as Error).message); }
+      setCredentials(owner); setSnapshot(initial);
+      window.scrollTo(0, 0);
     } catch (cause) { setError(typeof cause === 'object' && cause !== null && 'code' in cause ? geolocationError(cause as GeolocationPositionError) : (cause as Error).message); }
     finally { setBusy(null); startLock.current = false; }
   };
@@ -333,6 +341,7 @@ function GuardianApp({ sessionId }: { sessionId: string }) {
   const token = safeDecode(window.location.hash.slice(1));
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const now = useNow();
 
   useEffect(() => {
@@ -342,13 +351,22 @@ function GuardianApp({ sessionId }: { sessionId: string }) {
     const poll = async () => {
       if (requesting) return;
       requesting = true;
-      try { const next = await getSession(sessionId, token); if (active) { setSnapshot(previous => newerSnapshot(previous, next)); setError(null); } }
+      try { const next = await getSession(sessionId, token); if (active) { setSnapshot(previous => newerSnapshot(previous, next)); setLastCheckedAt(new Date().toISOString()); setError(null); } }
       catch (cause) { if (active) setError((cause as Error).message); }
       finally { requesting = false; }
     };
     void poll();
-    const timer = window.setInterval(poll, POLL_MS);
-    return () => { active = false; window.clearInterval(timer); };
+    const timer = window.setInterval(poll, GUARDIAN_POLL_MS);
+    const refresh = () => { if (document.visibilityState === 'visible') void poll(); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      active = false; window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('focus', refresh);
+    };
   }, [sessionId, token]);
 
   const ended = snapshot?.status === 'ended';
@@ -361,7 +379,7 @@ function GuardianApp({ sessionId }: { sessionId: string }) {
     {!token && <div className="watch-error"><Icon name="link" size={23} /><strong>Private link incomplete</strong><span>Ask the walker to send you the full guardian link.</span></div>}
     {token && error && !snapshot && <div className="watch-error"><Icon name="alert" size={23} /><strong>Couldn’t load this walk</strong><span>{error}</span></div>}
     {token && !error && !snapshot && <div className="loading-view"><span className="loader" />Connecting to the walk…</div>}
-    {snapshot && (ended ? <div className="complete-card"><span className="complete-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={27} /></span><h2>{snapshot.endedReason === 'expired' ? 'Session expired' : 'The walker ended this walk'}</h2><p>Location and route details are no longer available through this link.</p></div> : <div className="watch-grid"><section className="watch-map-card"><div className="panel-head"><div><span className="overline">LIVE MAP</span><h2>Shared location</h2></div><MiniStatus snapshot={snapshot} now={now} connectionError={error} /></div><SessionMap snapshot={snapshot} /><div className="map-foot"><span><Icon name="pin" size={16} />{snapshot.location ? `Accuracy ±${Math.round(snapshot.location.accuracy)} m` : 'No position received yet'}</span><span><Icon name="clock" size={16} />{snapshot.location ? `Captured ${relativeTime(snapshot.location.recordedAt, now)}` : 'Waiting for location'}</span></div></section><aside className="watch-side"><div className="detail-card"><span className="overline">WALK DETAILS</span><div className="detail-row"><span>Started</span><strong>{new Date(snapshot.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</strong></div><div className="detail-row"><span>Location</span><strong>{snapshot.location ? `${snapshot.location.latitude.toFixed(5)}, ${snapshot.location.longitude.toFixed(5)}` : 'Waiting'}</strong></div><div className="detail-row"><span>Signal</span><strong className={health.level === 'stale' || error ? 'detail-warn' : ''}>{error ? 'Connection interrupted' : health.label}</strong></div><div className="detail-row"><span>Sharing</span><strong>Active</strong></div></div><div className="guardian-note"><Icon name="shield" size={20} /><div><strong>What this view means</strong><p>Positions update when the walker’s browser sends them. An old timestamp may mean their page is closed, their phone is locked, or their connection is lost. This view does not confirm that anyone is watching or responding. OpenStreetMap receives the map area your browser requests.</p></div></div></aside></div>)}
+    {snapshot && (ended ? <div className="complete-card"><span className="complete-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={27} /></span><h2>{snapshot.endedReason === 'expired' ? 'Session expired' : 'The walker ended this walk'}</h2><p>Location and route details are no longer available through this link.</p></div> : <div className="watch-grid"><section className="watch-map-card"><div className="panel-head"><div><span className="overline">LIVE MAP</span><h2>Shared location</h2></div><MiniStatus snapshot={snapshot} now={now} connectionError={error} /></div><SessionMap snapshot={snapshot} /><div className="map-foot"><span><Icon name="pin" size={16} />{snapshot.location ? `Accuracy ±${Math.round(snapshot.location.accuracy)} m` : 'No position received yet'}</span><span><Icon name="clock" size={16} />{snapshot.location ? `Captured ${relativeTime(snapshot.location.recordedAt, now)}` : 'Waiting for location'}</span></div></section><aside className="watch-side"><div className="detail-card"><span className="overline">WALK DETAILS</span><div className="detail-row"><span>Started</span><strong>{new Date(snapshot.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</strong></div><div className="detail-row"><span>Location</span><strong>{snapshot.location ? `${snapshot.location.latitude.toFixed(5)}, ${snapshot.location.longitude.toFixed(5)}` : 'Waiting'}</strong></div><div className="detail-row"><span>Signal</span><strong className={health.level === 'stale' || error ? 'detail-warn' : ''}>{error ? 'Connection interrupted' : health.label}</strong></div><div className="detail-row"><span>Location received</span><strong>{relativeTime(snapshot.location?.receivedAt, now)}</strong></div><div className="detail-row"><span>View refreshed</span><strong>{relativeTime(lastCheckedAt, now)}</strong></div><div className="detail-row"><span>Sharing</span><strong>Active</strong></div></div><div className="guardian-note"><Icon name="shield" size={20} /><div><strong>What this view means</strong><p>Positions update when the walker’s browser sends them. An old timestamp may mean their page is closed, their phone is locked, or their connection is lost. This view does not confirm that anyone is watching or responding. OpenStreetMap receives the map area your browser requests.</p></div></div></aside></div>)}
     {snapshot && error && <div className="connection-notice" role="status"><Icon name="alert" size={17} />Updates are interrupted: {error}</div>}
     {snapshot && !ended && health.level === 'stale' && <div className="stale-notice" role="status"><Icon name="clock" size={18} />This location is over a minute old. Contact the walker directly if you are concerned.</div>}
     </main><footer className="footer"><span>GHOSTSIGNAL · PRIVATE WALK VIEW</span><span>Only people with this link can open this view.</span></footer></div>;

@@ -10,7 +10,7 @@
     "dev:web": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
-    "test": "tsx --test server/*.test.ts",
+    "test": "tsx --test server/*.test.ts src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

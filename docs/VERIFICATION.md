@@ -45,3 +45,12 @@ Actual phone GPS and permission behavior were not exercised. There is no verifie
 - Help activation, retraction, continued movement, and a second help request were verified with a student tab and its guardian tab. The private link stayed the same and the route remained visible.
 - API tests verify owner-only retraction, retry behavior, persisted active state, preserved location/trail/expiry, continued location updates, repeat help requests, and rejection after end or expiry.
 - Logical update timestamps advance for every state change, including changes occurring in the same millisecond, so older polling responses cannot restore a retracted alert.
+
+## Location latency follow-up
+
+- Replaced the coarse upload interval with a serialized, latest-position queue. Tests cover the 1.1-second gap, slow requests, newest-position selection, retries, stale/duplicate samples, and teardown.
+- Added fresh-position recovery after ten seconds of stalled capture, with tests for foreground recovery, permission denial, stalled requests, original timestamps, late callbacks, and cleanup.
+- Guardian polling runs every second, with immediate refresh on foreground, focus, or network reconnection. The view now distinguishes location receipt from the last successful dashboard refresh.
+- Initial location upload completes before continuous tracking starts; help/retraction no longer restarts the live GPS watcher.
+- Production build and all 14 tests pass. Local browser checks confirmed continuing simulated movement, guardian help/retraction, and the new freshness fields.
+- The reported two-phone Cloudflare delay has not been reproduced here. Actual phone GPS and tunnel latency still need a device retest; no fixed GPS update rate is promised.

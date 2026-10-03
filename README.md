@@ -27,6 +27,12 @@ A phone must reach the same frontend and backend through a **trusted HTTPS origi
 
 Keep the student page open and the screen unlocked. Browsers may suspend or throttle location work in background tabs or when the screen locks. Reliable background tracking is outside this web MVP.
 
+For a two-phone Cloudflare tunnel test, open the student page through the tunnel's HTTPS URL and share the guardian link generated there. Both phones must reach the same running server. After code changes, reload both phones; if the tunnel points to `npm start`, rebuild and restart that server first.
+
+The guardian checks for updates every second. New device positions are uploaded with a minimum 1.1-second gap after the previous upload completes; a slow connection keeps only the newest waiting position. If the browser's location watch stops providing fresh positions for ten seconds, the visible student page requests a fresh fix. The browser still controls how quickly and accurately a position is available; these intervals are not a GPS delivery guarantee.
+
+To diagnose delays, compare **Captured**, **Location received**, and **View refreshed** on the guardian. A recent view refresh with an old received time means the server has not received a new position; check the student's location or connection warning. An old view refresh indicates the guardian's connection is behind. Capture timestamps always remain the device's original timestamps.
+
 Hosting is intentionally undecided; this version runs locally. Choose a host with persistent storage and HTTPS before demonstrating real GPS across devices.
 
 ## Check and build
@@ -37,7 +43,7 @@ npm run build
 npm start
 ```
 
-`npm test` runs backend lifecycle and access-control checks. `npm run build` typechecks the project and creates the frontend in `dist/`. After a build, `npm start` serves both the built frontend and API at [http://localhost:3001](http://localhost:3001).
+`npm test` runs backend lifecycle, access-control, location recovery, and upload timing checks. `npm run build` typechecks the project and creates the frontend in `dist/`. After a build, `npm start` serves both the built frontend and API at [http://localhost:3001](http://localhost:3001).
 
 The server reads these optional environment variables from the process:
 
