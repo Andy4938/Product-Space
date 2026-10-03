@@ -9,7 +9,8 @@ function confirmsAction(kind: 'send' | 'retract', snapshot: SessionSnapshot, pre
       message => message.id === clientMessageId && message.presetId === presetId,
     ));
   }
-  return snapshot.status === 'active' && snapshot.incident?.walkerCancelledAt != null;
+  // A signal cancelled before it reached dispatch is deleted; the server confirms that with signalWithdrawnAt.
+  return snapshot.status === 'active' && (snapshot.incident?.walkerCancelledAt != null || snapshot.signalWithdrawnAt != null);
 }
 
 export function createEmergencyActions(hooks: {

@@ -42,6 +42,7 @@ interface SessionRow {
   guardian_phone: string | null;
   alerts_sent: number;
   walker_description: string | null;
+  signal_withdrawn_at: number | null;
 }
 
 interface IncidentRow {
@@ -60,6 +61,7 @@ interface IncidentRow {
   final_location_json: string | null;
   final_trail_json: string | null;
   final_walker_description: string | null;
+  pending_until: number | null;
   events_json: string;
   messages_json: string;
 }
@@ -73,6 +75,9 @@ const MAX_ALERTS_PER_SESSION = 10;
 const MAX_PUSH_DEVICES = 5;
 const MAX_INCIDENT_EVENTS = 100;
 const MAX_GUARDIAN_NOTES = 20;
+// A new signal stays private to the walker this long so a cancel in the app's undo window leaves
+// no trace: the walker's 3 s cancel window, a 3 s cancel hold, and room for network delay.
+export const CANCEL_GRACE_MS = 8_000;
 const MAX_PUBLIC_MESSAGES = 20;
 const MESSAGE_INTERVAL_MS = 2000;
 const RESOLVED_VISIBLE_MS = 12 * 60 * 60 * 1000;
@@ -81,10 +86,12 @@ const ADDED_SESSION_COLUMNS: Record<string, string> = {
   guardian_phone: 'TEXT',
   alerts_sent: 'INTEGER NOT NULL DEFAULT 0',
   walker_description: 'TEXT',
+  signal_withdrawn_at: 'INTEGER',
 };
 
 const ADDED_INCIDENT_COLUMNS: Record<string, string> = {
   final_walker_description: 'TEXT',
+  pending_until: 'INTEGER',
   messages_json: "TEXT NOT NULL DEFAULT '[]'",
 };
 
@@ -234,6 +241,7 @@ export class SessionStore {
     dbPath: string,
     private readonly now: () => number = Date.now,
     private readonly notifier: Notifier = silentNotifier,
+    private readonly cancelGraceMs: number = CANCEL_GRACE_MS,
   ) {
     if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
     this.database = new DatabaseSync(dbPath);
@@ -310,6 +318,7 @@ export class SessionStore {
 
   expireDue(): number {
     const timestamp = this.now();
+    this.releaseDueSignals(timestamp);
     const due = this.database.prepare(`SELECT * FROM sessions WHERE status != 'ended' AND expires_at <= ?`)
       .all(timestamp) as unknown as SessionRow[];
     for (const row of due) {
@@ -339,7 +348,9 @@ export class SessionStore {
 
   read(id: string, token: string): SessionSnapshot {
     this.expireDue();
-    return this.toSnapshot(this.authorize(id, token));
+    const row = this.authorize(id, token);
+    const isGuardian = tokenMatches(hashToken(token), row.guardian_hash);
+    return this.toSnapshot(row, isGuardian);
   }
 
   updateLocation(id: string, token: string, input: unknown): SessionSnapshot {
@@ -414,7 +425,7 @@ export class SessionStore {
         if (row.status === 'active' || !open) {
           const timestamp = this.now();
           this.database.prepare(`
-            UPDATE sessions SET status = 'help_requested', help_requested_at = ?,
+            UPDATE sessions SET status = 'help_requested', help_requested_at = ?, signal_withdrawn_at = NULL,
               updated_at = MAX(updated_at + 1, ?) WHERE id = ?
           `).run(timestamp, timestamp, id);
           let reference: string;
@@ -430,15 +441,18 @@ export class SessionStore {
             const opened: IncidentEvent = { at: iso(timestamp), kind: 'opened', text: 'Silent help signal received from walker.' };
             const revision = Math.max(timestamp, row.updated_at + 1, (latest?.updated_at ?? -Infinity) + 1);
             this.database.prepare(`
-              INSERT INTO incidents (id, session_id, reference, status, opened_at, updated_at, events_json)
-              VALUES (?, ?, ?, 'new', ?, ?, ?)
-            `).run(incidentId, id, reference, timestamp, revision, JSON.stringify([opened]));
+              INSERT INTO incidents (id, session_id, reference, status, opened_at, updated_at, events_json, pending_until)
+              VALUES (?, ?, ?, 'new', ?, ?, ?, ?)
+            `).run(incidentId, id, reference, timestamp, revision, JSON.stringify([opened]), timestamp + this.cancelGraceMs);
           }
           if (initial) {
             const incident = this.database.prepare('SELECT * FROM incidents WHERE id = ?').get(incidentId) as unknown as IncidentRow;
             this.appendPresetMessage(incident, id, initial.presetId, initial.clientMessageId, timestamp);
           }
-          notification = { reference, timestamp };
+          // A resent signal was already visible to dispatch, so the guardian hears about it now.
+          // A brand-new one is announced when its grace period ends (releaseDueSignals).
+          if (open) notification = { reference, timestamp };
+          else this.scheduleRelease();
         }
       }
       this.database.exec('COMMIT');
@@ -467,6 +481,13 @@ export class SessionStore {
           updated_at = MAX(updated_at + 1, ?) WHERE id = ?
       `).run(timestamp, id);
       const open = this.openIncident(id);
+      if (open && open.pending_until !== null) {
+        // Cancelled in time: dispatch and the guardian never saw it, so it is removed without a trace.
+        this.database.prepare('DELETE FROM incident_message_receipts WHERE incident_id = ?').run(open.id);
+        this.database.prepare('DELETE FROM incidents WHERE id = ?').run(open.id);
+        this.database.prepare('UPDATE sessions SET signal_withdrawn_at = ? WHERE id = ?').run(timestamp, id);
+        return this.read(id, token);
+      }
       if (open) {
         this.database.prepare('UPDATE incidents SET walker_cancelled_at = ? WHERE id = ?').run(timestamp, open.id);
         this.addEvent(open.id, 'walker_cancelled', 'Walker cancelled the signal. A cancellation can be coerced; verify in person before closing.', timestamp);
@@ -535,7 +556,8 @@ export class SessionStore {
     this.expireDue();
     const timestamp = this.now();
     const rows = this.database.prepare(`
-      SELECT * FROM incidents WHERE status != 'resolved' OR resolved_at > ? ORDER BY opened_at DESC, rowid DESC LIMIT 200
+      SELECT * FROM incidents WHERE pending_until IS NULL AND (status != 'resolved' OR resolved_at > ?)
+      ORDER BY opened_at DESC, rowid DESC LIMIT 200
     `).all(timestamp - RESOLVED_VISIBLE_MS) as unknown as IncidentRow[];
     return { serverTime: iso(timestamp), incidents: rows.map((row) => this.toDispatchIncident(row)) };
   }
@@ -600,34 +622,42 @@ export class SessionStore {
     this.expireDue();
     const row = this.authorize(id, token);
     const open = this.openIncident(id);
-    if (!open) throw new ApiError(409, 'There is no open Campus Safety incident for this walk.');
+    if (!open || open.pending_until !== null) throw new ApiError(409, 'There is no open Campus Safety incident for this walk.');
     const text = normalizeText(asObject(input, 'Invalid note.').text, 280, 'Note', true)!;
     const events = JSON.parse(open.events_json) as IncidentEvent[];
     if (events.filter((event) => event.kind === 'guardian_note').length >= MAX_GUARDIAN_NOTES) {
       throw new ApiError(429, 'Too many notes have been sent for this incident.');
     }
     this.addEvent(open.id, 'guardian_note', text, this.now());
-    return this.toSnapshot(row);
+    return this.toSnapshot(row, tokenMatches(hashToken(token), row.guardian_hash));
   }
 
   // ---- internals ----
 
-  private toSnapshot(row: SessionRow): SessionSnapshot {
-    const incident = this.database.prepare('SELECT * FROM incidents WHERE session_id = ? ORDER BY rowid DESC LIMIT 1')
+  private toSnapshot(row: SessionRow, hidePending = false): SessionSnapshot {
+    const latest = this.database.prepare('SELECT * FROM incidents WHERE session_id = ? ORDER BY rowid DESC LIMIT 1')
       .get(row.id) as unknown as IncidentRow | undefined;
+    // Until a new signal is released, a guardian sees the walk as it was before the signal.
+    const masked = hidePending && latest !== undefined && latest.pending_until !== null;
+    const incident = masked
+      ? this.database.prepare('SELECT * FROM incidents WHERE session_id = ? AND pending_until IS NULL ORDER BY rowid DESC LIMIT 1')
+        .get(row.id) as unknown as IncidentRow | undefined
+      : latest;
     return {
       id: row.id,
       mode: row.mode,
-      status: row.status,
+      status: masked && row.status === 'help_requested' ? 'active' : row.status,
       startedAt: iso(row.started_at),
       updatedAt: iso(Math.max(row.updated_at, incident?.updated_at ?? 0)),
       expiresAt: iso(row.expires_at),
-      helpRequestedAt: isoOrNull(row.help_requested_at),
+      helpRequestedAt: masked ? null : isoOrNull(row.help_requested_at),
       endedReason: row.ended_reason,
       location: row.location_json === null ? null : JSON.parse(row.location_json) as LocationPoint,
       trail: JSON.parse(row.trail_json) as LocationPoint[],
       textAlertsEnabled: row.guardian_phone !== null,
       descriptionProvided: row.walker_description !== null,
+      // Only the walker learns a signal was withdrawn; guardians never knew it existed.
+      signalWithdrawnAt: hidePending ? null : isoOrNull(row.signal_withdrawn_at),
       incident: incident ? toIncidentSummary(incident) : null,
     };
   }
@@ -658,7 +688,7 @@ export class SessionStore {
 
   private incidentForDispatch(incidentId: string): IncidentRow {
     const row = /^[0-9a-f-]{36}$/i.test(incidentId)
-      ? this.database.prepare('SELECT * FROM incidents WHERE id = ?').get(incidentId) as unknown as IncidentRow | undefined
+      ? this.database.prepare('SELECT * FROM incidents WHERE id = ? AND pending_until IS NULL').get(incidentId) as unknown as IncidentRow | undefined
       : undefined;
     if (!row) throw new ApiError(404, 'Incident not found.');
     return row;
@@ -697,6 +727,30 @@ export class SessionStore {
       UPDATE incidents SET final_location_json = ?, final_trail_json = ?, final_walker_description = ? WHERE id = ?
     `).run(session.location_json, session.trail_json, session.walker_description, open.id);
     this.addEvent(open.id, kind, text, timestamp);
+  }
+
+  // Makes signals whose grace period has passed visible to dispatch and alerts the guardian.
+  private releaseDueSignals(timestamp: number): void {
+    const due = this.database.prepare('SELECT * FROM incidents WHERE pending_until IS NOT NULL AND pending_until <= ?')
+      .all(timestamp) as unknown as IncidentRow[];
+    for (const incident of due) {
+      this.database.prepare('UPDATE incidents SET pending_until = NULL, updated_at = MAX(updated_at + 1, ?) WHERE id = ?')
+        .run(timestamp, incident.id);
+      const session = this.database.prepare('SELECT * FROM sessions WHERE id = ?').get(incident.session_id) as unknown as SessionRow;
+      if (session.status === 'ended') continue;
+      this.notifyGuardian(session, {
+        sms: `PhanTomSignal: the walker sent a SILENT help signal. Campus Safety is notified (${incident.reference}). Please do not call or text them; it could alert someone nearby. ${lastLocationText(session.location_json, timestamp)}`,
+        push: { title: 'Silent help signal', body: 'Campus Safety is notified. Don’t call or text the walker; it could alert someone nearby. Tap to follow their location.', tag: 'help', urgent: true },
+      });
+    }
+  }
+
+  // Releases a signal on time even if no client polls the server during its grace period.
+  private scheduleRelease(): void {
+    const timer = setTimeout(() => {
+      try { this.expireDue(); } catch { /* The store may have closed. */ }
+    }, this.cancelGraceMs + 50);
+    timer.unref?.();
   }
 
   private pushDeviceCount(sessionId: string): number {

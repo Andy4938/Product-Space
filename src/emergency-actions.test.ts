@@ -157,3 +157,17 @@ test('simultaneous sends with different selected presets do not coalesce', async
   await first;
   assert.equal(accepted.length, 1);
 });
+
+test('a withdrawal receipt confirms a cancel that reached the server before dispatch saw the signal', async () => {
+  const withdrawn = { ...snapshot('active', null), signalWithdrawnAt: at };
+  const direct = harness({ retract: async () => withdrawn });
+  await direct.actions.retract();
+  assert.deepEqual(direct.accepted, [withdrawn]);
+
+  const reconciled = harness({
+    retract: async () => { throw new Error('response lost'); },
+    read: async () => withdrawn,
+  });
+  await reconciled.actions.retract();
+  assert.deepEqual(reconciled.accepted, [withdrawn]);
+});

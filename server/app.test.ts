@@ -9,7 +9,7 @@ import { test, type TestContext } from 'node:test';
 import type { CreateSessionResponse, DispatchIncident, DispatchIncidentList, PushSubscriptionInput, SessionSnapshot } from '../src/api-types.js';
 import { createApp } from './app.js';
 import type { GuardianAlert, Notifier, PushPayload, PushResult } from './notify.js';
-import { SessionStore } from './store.js';
+import { CANCEL_GRACE_MS, SessionStore } from './store.js';
 
 interface JsonResponse<T = unknown> {
   status: number;
@@ -31,11 +31,12 @@ function recordingNotifier(pushResult: PushResult = 'sent') {
   return { sms, pushes, notifier };
 }
 
-function setup(t: TestContext, recorder = recordingNotifier()) {
+// Most suites test behavior after a signal reaches dispatch, so they release signals immediately.
+function setup(t: TestContext, recorder = recordingNotifier(), cancelGraceMs = 0) {
   const dir = mkdtempSync(join(tmpdir(), 'ghostsignal-test-'));
   const dbPath = join(dir, 'sessions.sqlite');
   const clock = { now: Date.parse('2026-10-02T18:00:00.000Z') };
-  const store = new SessionStore(dbPath, () => clock.now, recorder.notifier);
+  const store = new SessionStore(dbPath, () => clock.now, recorder.notifier, cancelGraceMs);
   const server = createApp(store, { dispatchCode: DISPATCH_CODE }).listen(0);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   t.after(async () => {
@@ -698,8 +699,86 @@ test('dispatch cannot close an incident as unable to locate, or with a non-outco
   const resolve = (outcome: unknown) => json<DispatchIncident>(base, `/api/dispatch/incidents/${incident.id}/resolve`, {
     method: 'POST', token: DISPATCH_CODE, body: { outcome },
   });
-  for (const outcome of ['unable_to_locate', 'toString', 'constructor', '__proto__', 42]) {
+  for (const outcome of ['unable_to_locate', 'escalated_to_police', 'toString', 'constructor', '__proto__', 42]) {
     assert.equal((await resolve(outcome)).status, 400, `outcome ${String(outcome)} must be rejected`);
   }
   assert.equal((await resolve('escorted_to_safety')).body.status, 'resolved');
+});
+
+async function startGraceWalk(t: TestContext) {
+  const recorder = recordingNotifier();
+  const ctx = setup(t, recorder, CANCEL_GRACE_MS);
+  const created = (await json<CreateSessionResponse>(ctx.base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  await json(ctx.base, `${path}/contacts`, { method: 'POST', token: created.ownerToken, body: { guardianPhone: '+12175550123' } });
+  await json(ctx.base, `${path}/push-subscriptions`, { method: 'POST', token: created.guardianToken, body: PUSH_SUBSCRIPTION });
+  const dispatched = async () => (await json<DispatchIncidentList>(ctx.base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents;
+  const settle = () => new Promise((done) => setImmediate(done));
+  return { ...ctx, recorder, created, path, dispatched, settle };
+}
+
+test('a signal cancelled within the grace period never reaches dispatch or the guardian', async (t) => {
+  const { base, clock, recorder, created, path, dispatched, settle } = await startGraceWalk(t);
+  const helped = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: created.ownerToken })).body;
+  assert.equal(helped.status, 'help_requested');
+  assert.equal(helped.incident?.status, 'new', 'the walker sees their own pending signal');
+
+  assert.deepEqual(await dispatched(), [], 'dispatch sees nothing during the grace period');
+  const guardianDuring = (await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body;
+  assert.equal(guardianDuring.status, 'active');
+  assert.equal(guardianDuring.incident, null);
+  assert.equal(guardianDuring.helpRequestedAt, null);
+  assert.equal((await json(base, `/api/dispatch/incidents/${helped.incident!.id}/acknowledge`, { method: 'POST', token: DISPATCH_CODE })).status, 404);
+  assert.equal((await json(base, `${path}/guardian-notes`, { method: 'POST', token: created.guardianToken, body: { text: 'early' } })).status, 409);
+  await json(base, `${path}/messages`, { method: 'POST', token: created.ownerToken, body: { presetId: 'cannot_talk', clientMessageId: crypto.randomUUID() } });
+
+  clock.now += 6_000; // still inside the grace period, as after a full cancel hold
+  const cancelled = (await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken })).body;
+  assert.equal(cancelled.status, 'active');
+  assert.equal(cancelled.incident, null, 'the withdrawn signal is deleted');
+  assert.ok(cancelled.signalWithdrawnAt, 'the walker gets a withdrawal receipt');
+  assert.equal((await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body.signalWithdrawnAt, null);
+
+  clock.now += CANCEL_GRACE_MS * 2;
+  assert.deepEqual(await dispatched(), [], 'a withdrawn signal is never released');
+  await settle();
+  assert.equal(recorder.sms.length, 0, 'the guardian is not texted');
+  assert.equal(recorder.pushes.length, 0, 'the guardian gets no push notification');
+});
+
+test('a signal that is not cancelled is released to dispatch and the guardian after the grace period', async (t) => {
+  const { base, clock, recorder, created, path, dispatched, settle } = await startGraceWalk(t);
+  const presetId = crypto.randomUUID();
+  await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken, body: { presetId: 'being_followed', clientMessageId: presetId } });
+  await settle();
+  assert.equal(recorder.sms.length, 0);
+
+  clock.now += CANCEL_GRACE_MS;
+  const released = await dispatched();
+  assert.equal(released.length, 1, 'dispatch sees the signal once the grace period ends');
+  assert.equal(released[0].messages[0].id, presetId, 'a message sent with the signal arrives with it');
+  await settle();
+  assert.equal(recorder.sms.length, 1);
+  assert.match(recorder.sms[0].body, /SILENT help signal/);
+  assert.equal(recorder.pushes.length, 1);
+  assert.equal((await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body.status, 'help_requested');
+
+  // A cancel after release cannot be silent: dispatch keeps the incident and verifies in person.
+  const late = (await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken })).body;
+  assert.ok(late.incident?.walkerCancelledAt);
+  assert.equal(late.signalWithdrawnAt, null);
+  assert.ok((await dispatched())[0].walkerCancelledAt);
+});
+
+test('sending again after a silent cancel starts a fresh grace period and dispatch receives one incident', async (t) => {
+  const { base, clock, created, path, dispatched } = await startGraceWalk(t);
+  await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+  await json(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken });
+  const again = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: created.ownerToken })).body;
+  assert.equal(again.signalWithdrawnAt, null, 'a new signal clears the old withdrawal receipt');
+  assert.deepEqual(await dispatched(), []);
+  clock.now += CANCEL_GRACE_MS;
+  const incidents = await dispatched();
+  assert.equal(incidents.length, 1);
+  assert.equal(incidents[0].id, again.incident!.id);
 });

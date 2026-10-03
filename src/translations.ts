@@ -1065,6 +1065,11 @@ export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>>
     "zh-CN": "取消未确认。长按“取消”重试。",
     "hi": "रद्द करने की पुष्टि नहीं हुई। फिर कोशिश के लिए “रद्द करें” दबाए रखें।"
   },
+  "Cancelled in time. Nothing was sent to Campus Safety.": {
+    "es": "Cancelado a tiempo. No se envió nada a Seguridad del Campus.",
+    "zh-CN": "已及时取消。没有任何内容发送给校园安全部门。",
+    "hi": "समय पर रद्द किया गया। कैंपस सुरक्षा को कुछ नहीं भेजा गया।"
+  },
   "Request received by the prototype safety console.": {
     "es": "La consola de seguridad de prueba recibió tu solicitud.",
     "zh-CN": "原型安全控制台已收到请求。",
@@ -1459,11 +1464,6 @@ export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>>
     "es": "La persona terminó la caminata en un lugar seguro",
     "zh-CN": "步行者已在安全地点结束步行",
     "hi": "पैदल यात्री ने सुरक्षित जगह पर सफ़र समाप्त किया"
-  },
-  "Escalated to police / 911": {
-    "es": "Derivado a la policía / 911",
-    "zh-CN": "已升级至警方 / 911",
-    "hi": "पुलिस / 911 को सौंपा गया"
   },
   "Another request is still being confirmed.": {
     "es": "Otra solicitud aún está pendiente de confirmación.",

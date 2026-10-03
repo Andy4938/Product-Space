@@ -15,14 +15,13 @@ export type IncidentStatus = 'new' | 'acknowledged' | 'responding' | 'resolved';
 // Every outcome is something a responder can establish in person, without the walker
 // having to call, text, or speak to anyone while they may be at risk.
 export type IncidentOutcome = 'escorted_to_safety' | 'no_threat_on_scene' | 'accidental_confirmed_in_person'
-  | 'walker_reached_safety' | 'escalated_to_police';
+  | 'walker_reached_safety';
 
 export const INCIDENT_OUTCOMES: Record<IncidentOutcome, string> = {
   escorted_to_safety: 'Responder reached walker and escorted them to safety',
   no_threat_on_scene: 'Responder on scene; no threat observed',
   accidental_confirmed_in_person: 'Accidental signal, confirmed in person by responder',
   walker_reached_safety: 'Walker ended the walk at a safe location',
-  escalated_to_police: 'Escalated to police / 911',
 };
 
 export function isIncidentOutcome(value: unknown): value is IncidentOutcome {
@@ -69,6 +68,8 @@ export interface SessionSnapshot {
   trail: LocationPoint[];
   textAlertsEnabled: boolean;
   descriptionProvided: boolean;
+  // Set when the walker cancelled a signal before it reached dispatch; the walker's receipt for that cancel.
+  signalWithdrawnAt?: string | null;
   incident: IncidentSummary | null;
 }
 

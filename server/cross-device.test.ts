@@ -12,7 +12,7 @@ import { SessionStore } from './store.js';
 test('a second HTTP client follows owner updates using only the shared URL', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'ghostsignal-cross-device-'));
   const clock = { now: Date.parse('2026-10-03T18:00:00.000Z') };
-  const store = new SessionStore(join(directory, 'sessions.sqlite'), () => clock.now);
+  const store = new SessionStore(join(directory, 'sessions.sqlite'), () => clock.now, undefined, 0);
   const server = createApp(store).listen(0);
   t.after(async () => {
     await new Promise<void>(done => server.close(() => done()));
