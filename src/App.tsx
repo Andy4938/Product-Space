@@ -157,7 +157,7 @@ function HoldToCheckIn({ onSignal, disabled }: { onSignal: () => void; disabled:
     onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') stop(); }}
     aria-label="Silent help signal. Press and hold for about two seconds to alert Campus Safety. The screen will barely change."
   >
-    <span className="hold-ring" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" /><circle className="hold-progress" cx="22" cy="22" r="19" /></svg><Icon name="check" size={20} /></span>
+    <span className="hold-ring" aria-hidden="true"><svg className="hold-progress-ring" viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" /><circle className="hold-progress" cx="22" cy="22" r="19" /></svg><Icon name="check" size={20} /></span>
     <span className="hold-text"><strong>{disabled ? 'Sending…' : 'Hold to check in'}</strong><small>Press and hold</small></span>
   </button>;
 }
