@@ -31,6 +31,9 @@ function handle(action: (request: Request, response: express.Response) => void):
 export function createApp(store: SessionStore, options: { staticDir?: string; dispatchCode?: string } = {}): express.Express {
   const app = express();
   app.disable('x-powered-by');
+  // Behind a local reverse proxy (Cloudflare Tunnel, Vite), every request arrives from loopback.
+  // Trust only that hop so rate limits key on each visitor's forwarded address, not the proxy's.
+  app.set('trust proxy', 'loopback');
   app.use((_, response, next) => {
     response.set('Referrer-Policy', 'strict-origin');
     response.set('X-Content-Type-Options', 'nosniff');

@@ -666,3 +666,26 @@ test('homepage emergency flow creates one live incident without waiting for GPS 
   assert.equal(queue.body.incidents[0].id, incidentId);
   assert.equal(queue.body.incidents[0].walkerCancelledAt, null);
 });
+
+test('rate limits key on the forwarded visitor address when requests come through a local proxy', async (t) => {
+  const { base } = setup(t);
+  const create = (visitor: string) => fetch(`${base}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': visitor },
+    body: JSON.stringify({ mode: 'demo' }),
+  });
+  for (let index = 0; index < 20; index++) assert.equal((await create('203.0.113.7')).status, 201);
+  assert.equal((await create('203.0.113.7')).status, 429);
+  // A different visitor behind the same tunnel is unaffected.
+  assert.equal((await create('198.51.100.9')).status, 201);
+
+  const wrongCode = (visitor: string) => fetch(`${base}/api/dispatch/incidents`, {
+    headers: { Authorization: 'Bearer wrong-code', 'X-Forwarded-For': visitor },
+  });
+  for (let index = 0; index < 10; index++) assert.equal((await wrongCode('203.0.113.7')).status, 401);
+  assert.equal((await wrongCode('203.0.113.7')).status, 429);
+  const dispatcher = await fetch(`${base}/api/dispatch/incidents`, {
+    headers: { Authorization: `Bearer ${DISPATCH_CODE}`, 'X-Forwarded-For': '198.51.100.9' },
+  });
+  assert.equal(dispatcher.status, 200);
+});
