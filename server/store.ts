@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  INCIDENT_OUTCOMES,
+  INCIDENT_OUTCOMES, isIncidentOutcome,
   type DispatchIncident, type DispatchIncidentList, type IncidentEvent, type IncidentEventKind, type IncidentOutcome,
   type IncidentMessage, type IncidentStatus, type IncidentSummary, type LocationPoint, type PushSubscriptionInput, type SessionMode,
   type SessionSnapshot, type SessionStatus,
@@ -573,7 +573,7 @@ export class SessionStore {
     if (incident.status === 'resolved') throw new ApiError(409, 'Incident is already resolved.');
     const body = asObject(input, 'Invalid outcome.');
     const outcome = body.outcome;
-    if (typeof outcome !== 'string' || !(outcome in INCIDENT_OUTCOMES)) throw new ApiError(400, 'Choose an outcome.');
+    if (!isIncidentOutcome(outcome)) throw new ApiError(400, 'Choose an outcome.');
     const note = normalizeText(body.note, 280, 'Note');
     const timestamp = this.now();
     // Resolution ends Campus Safety's access to the walker's location and description.
@@ -581,7 +581,7 @@ export class SessionStore {
       UPDATE incidents SET status = 'resolved', resolved_at = ?, outcome = ?, final_location_json = NULL,
         final_trail_json = NULL, final_walker_description = NULL WHERE id = ?
     `).run(timestamp, outcome, incidentId);
-    const label = INCIDENT_OUTCOMES[outcome as IncidentOutcome];
+    const label = INCIDENT_OUTCOMES[outcome];
     this.addEvent(incidentId, 'resolved', note ? `Resolved: ${label}. ${note}` : `Resolved: ${label}.`, timestamp);
     this.notifyIncidentChange(incident, 'Campus Safety closed the incident', `Outcome: ${label}.`);
     return this.toDispatchIncident(this.incidentForDispatch(incidentId));

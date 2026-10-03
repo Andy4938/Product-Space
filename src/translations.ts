@@ -1460,11 +1460,6 @@ export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>>
     "zh-CN": "步行者已在安全地点结束步行",
     "hi": "पैदल यात्री ने सुरक्षित जगह पर सफ़र समाप्त किया"
   },
-  "Unable to locate walker": {
-    "es": "No se pudo localizar a la persona",
-    "zh-CN": "未能找到步行者",
-    "hi": "पैदल यात्री नहीं मिला"
-  },
   "Escalated to police / 911": {
     "es": "Derivado a la policía / 911",
     "zh-CN": "已升级至警方 / 911",

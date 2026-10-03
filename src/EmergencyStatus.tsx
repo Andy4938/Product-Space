@@ -1,7 +1,7 @@
 import { useI18n } from './i18n';
 import { useState, type ReactNode } from 'react';
 import { translate, type Locale } from './i18n';
-import { INCIDENT_OUTCOMES, type IncidentSummary, type SessionSnapshot } from './api-types';
+import { outcomeLabel, type IncidentSummary, type SessionSnapshot } from './api-types';
 
 type Action = 'cancel' | 'location' | 'share' | 'stop' | null;
 
@@ -74,7 +74,7 @@ export function EmergencyStatus({ snapshot, now, locationError, pollError, cance
       {snapshot.mode === 'demo' && <span className="emergency-demo-tag">{t("SIMULATED WALK")}</span>}
     </div>
     <h1 aria-live="polite">{t(incidentHeadline(incident))}</h1>
-    <p className="emergency-status-summary">{incident.status === 'new' ? t("Your request reached the prototype safety console. A dispatcher has not yet acknowledged it.") : incident.status === 'acknowledged' ? t("The dispatcher has seen your request. Keep your phone with you and your location page open if you can.") : incident.status === 'responding' ? t('{unit} has been marked as responding to your shared location.', { unit: incident.unit ?? t("A responder") }) : incident.outcome ? t(INCIDENT_OUTCOMES[incident.outcome]) : t("The dispatcher has closed this incident.")}</p>
+    <p className="emergency-status-summary">{incident.status === 'new' ? t("Your request reached the prototype safety console. A dispatcher has not yet acknowledged it.") : incident.status === 'acknowledged' ? t("The dispatcher has seen your request. Keep your phone with you and your location page open if you can.") : incident.status === 'responding' ? t('{unit} has been marked as responding to your shared location.', { unit: incident.unit ?? t("A responder") }) : incident.outcome ? t(outcomeLabel(incident.outcome)!) : t("The dispatcher has closed this incident.")}</p>
 
     {cancellationPending && <div className="emergency-cancel-pending" role="status"><strong>{t("Cancellation requested — awaiting dispatcher confirmation")}</strong><span>{t("Dispatch may still check on you in person. This does not close the incident or stop location sharing.")}</span></div>}
     {cancelError && !cancellationPending && incident.status !== 'resolved' && <div className="emergency-action-error" role="alert"><strong>{t("Cancellation was not confirmed.")}</strong><span>{t(cancelError)}</span></div>}

@@ -689,3 +689,17 @@ test('rate limits key on the forwarded visitor address when requests come throug
   });
   assert.equal(dispatcher.status, 200);
 });
+
+test('dispatch cannot close an incident as unable to locate, or with a non-outcome value', async (t) => {
+  const { base } = setup(t);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'demo' } })).body;
+  await json(base, `/api/sessions/${created.sessionId}/help`, { method: 'POST', token: created.ownerToken });
+  const incident = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  const resolve = (outcome: unknown) => json<DispatchIncident>(base, `/api/dispatch/incidents/${incident.id}/resolve`, {
+    method: 'POST', token: DISPATCH_CODE, body: { outcome },
+  });
+  for (const outcome of ['unable_to_locate', 'toString', 'constructor', '__proto__', 42]) {
+    assert.equal((await resolve(outcome)).status, 400, `outcome ${String(outcome)} must be rejected`);
+  }
+  assert.equal((await resolve('escorted_to_safety')).body.status, 'resolved');
+});

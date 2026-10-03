@@ -3,7 +3,7 @@ import { createEmergencyActions } from './emergency-actions';
 import './landing.css';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, ZoomControl, useMap } from 'react-leaflet';
-import { INCIDENT_OUTCOMES, type ContactsInput, type IncidentStatus, type IncidentSummary, type SessionSnapshot } from './api-types';
+import { outcomeLabel, type ContactsInput, type IncidentStatus, type IncidentSummary, type SessionSnapshot } from './api-types';
 import { addPushSubscription, ApiRequestError, endSession, getPushPublicKey, getSession, postLocation, sendGuardianNote, sendPresetMessage, setContacts, startSession, type OwnerCredentials } from './api';
 import DispatchApp from './Dispatch';
 import { demoLocation } from './demoPath';
@@ -450,7 +450,7 @@ function IncidentTracker({ incident, sharing, now }: { incident: IncidentSummary
     { label: t('Signal sent'), at: incident.openedAt, detail: t('Ref {reference}', { reference: incident.reference }) },
     { label: t('Campus Safety has it'), at: incident.acknowledgedAt, detail: sharing ? t('Watching live location') : t('Live sharing stopped') },
     { label: incident.unit ? t('{unit} on the way', { unit: incident.unit }) : t('Responder on the way'), at: incident.respondingAt, detail: sharing ? t('Heading to live location') : t('Heading to the last known location') },
-    { label: t('Closed'), at: incident.resolvedAt, detail: incident.outcome ? t(INCIDENT_OUTCOMES[incident.outcome]) : '' },
+    { label: t('Closed'), at: incident.resolvedAt, detail: incident.outcome ? t(outcomeLabel(incident.outcome)!) : '' },
   ];
   const current = steps.findIndex(step => !step.at);
   const waiting = incident.status === 'new' && now - Date.parse(incident.openedAt) > 60_000;

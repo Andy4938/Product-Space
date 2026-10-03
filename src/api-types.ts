@@ -15,16 +15,25 @@ export type IncidentStatus = 'new' | 'acknowledged' | 'responding' | 'resolved';
 // Every outcome is something a responder can establish in person, without the walker
 // having to call, text, or speak to anyone while they may be at risk.
 export type IncidentOutcome = 'escorted_to_safety' | 'no_threat_on_scene' | 'accidental_confirmed_in_person'
-  | 'walker_reached_safety' | 'unable_to_locate' | 'escalated_to_police';
+  | 'walker_reached_safety' | 'escalated_to_police';
 
 export const INCIDENT_OUTCOMES: Record<IncidentOutcome, string> = {
   escorted_to_safety: 'Responder reached walker and escorted them to safety',
   no_threat_on_scene: 'Responder on scene; no threat observed',
   accidental_confirmed_in_person: 'Accidental signal, confirmed in person by responder',
   walker_reached_safety: 'Walker ended the walk at a safe location',
-  unable_to_locate: 'Unable to locate walker',
   escalated_to_police: 'Escalated to police / 911',
 };
+
+export function isIncidentOutcome(value: unknown): value is IncidentOutcome {
+  return typeof value === 'string' && Object.hasOwn(INCIDENT_OUTCOMES, value);
+}
+
+// Incidents closed with an outcome that has since been retired keep its ID; show them a neutral label.
+export function outcomeLabel(outcome: string | null | undefined): string | null {
+  if (!outcome) return null;
+  return isIncidentOutcome(outcome) ? INCIDENT_OUTCOMES[outcome] : 'The dispatcher has closed this incident.';
+}
 
 // The part of a Campus Safety incident the walker and guardian can see.
 export interface IncidentMessage {

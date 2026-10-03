@@ -1,7 +1,7 @@
 import L from 'leaflet';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Circle, MapContainer, Marker, Polyline, TileLayer, Tooltip, ZoomControl, useMap } from 'react-leaflet';
-import { INCIDENT_OUTCOMES, type DispatchIncident, type IncidentEventKind, type IncidentOutcome, type IncidentStatus } from './api-types';
+import { INCIDENT_OUTCOMES, outcomeLabel, type DispatchIncident, type IncidentEventKind, type IncidentOutcome, type IncidentStatus } from './api-types';
 import { acknowledgeIncident, addIncidentNote, ApiRequestError, listIncidents, resolveIncident, respondToIncident } from './api';
 import { describeNearLandmark } from './landmarks';
 import { accuracyLabel, Brand, CAMPUS_CENTER, Icon, type IconName, elapsed, locationHealth, mapLink, movementSummary, playTones, relativeTime, useNow } from './shared';
@@ -277,7 +277,7 @@ function QueueItem({ incident, now, selected, unreadCount, onSelect }: { inciden
     <div className="queue-meta">
       {incident.status !== 'resolved' && incident.location && <span className={`fresh-dot ${health.level}`}>{relativeTime(incident.location.recordedAt, now)}</span>}
       {incident.unit && incident.status === 'responding' && <span className="queue-tag unit">{incident.unit}</span>}
-      {incident.outcome && <span className="queue-tag">{INCIDENT_OUTCOMES[incident.outcome]}</span>}
+      {incident.outcome && <span className="queue-tag">{outcomeLabel(incident.outcome)}</span>}
       {incident.walkerCancelledAt && incident.status !== 'resolved' && <span className="queue-tag warn">Walker cancelled</span>}
       {incident.events.some(event => event.kind === 'guardian_note') && incident.status !== 'resolved' && <span className="queue-tag">Guardian note</span>}
       {incident.sessionState !== 'sharing' && incident.status !== 'resolved' && <span className="queue-tag">{incident.sessionState === 'ended' ? 'Walker ended walk' : 'Session expired'}</span>}

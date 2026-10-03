@@ -17,7 +17,7 @@ function snapshot(status: IncidentStatus = 'new'): SessionSnapshot {
       acknowledgedAt: status === 'new' ? null : '2026-01-01T12:02:00.000Z',
       respondingAt: status === 'responding' || status === 'resolved' ? '2026-01-01T12:03:00.000Z' : null,
       unit: null, resolvedAt: status === 'resolved' ? '2026-01-01T12:04:00.000Z' : null,
-      outcome: status === 'resolved' ? 'unable_to_locate' : null, walkerCancelledAt: null,
+      outcome: status === 'resolved' ? 'no_threat_on_scene' : null, walkerCancelledAt: null,
     },
   };
 }
@@ -59,10 +59,13 @@ test('public stages update from new to acknowledged, responding, and resolved wi
       assert.doesNotMatch(html, /Responder dispatched/);
     }
     if (status === 'resolved') {
-      assert.match(html, /Unable to locate walker/);
+      assert.match(html, /Responder on scene; no threat observed/);
       assert.doesNotMatch(html, /You are safe|All clear/i);
       value.incident!.respondingAt = null;
       assert.match(renderStatus(value), /Not recorded/);
+      // An incident closed with the retired "unable to locate" outcome still renders safely.
+      value.incident!.outcome = 'unable_to_locate' as never;
+      assert.match(renderStatus(value), /The dispatcher has closed this incident/);
     }
   }
 });
