@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, ZoomControl, useMap } from 'react-leaflet';
-import type { SessionSnapshot } from './api-types';
-import { ApiRequestError, endSession, getSession, postLocation, requestHelp, retractHelp, startSession, type OwnerCredentials } from './api';
+import { INCIDENT_OUTCOMES, type ContactsInput, type IncidentStatus, type IncidentSummary, type SessionSnapshot } from './api-types';
+import { addPushSubscription, ApiRequestError, endSession, getPushPublicKey, getSession, postLocation, requestHelp, retractHelp, sendGuardianNote, setContacts, startSession, type OwnerCredentials } from './api';
+import DispatchApp from './Dispatch';
 import { demoLocation } from './demoPath';
 import { createLocationUploader } from './location-upload';
 import { startLocationWatch } from './location-watch';
+import { accuracyLabel, Brand, CAMPUS_CENTER, clockTime, elapsed, Icon, locationHealth, mapLink, movementSummary, playTones, relativeTime, useNow } from './shared';
 
 const STORAGE_KEY = 'ghostsignal-owner-v1';
-const CAMPUS_CENTER: [number, number] = [40.1077, -88.2274];
+const TEXT_VIEW_KEY = 'ghostsignal-text-view';
+const LINK_CACHE = 'ghostsignal-links';
 const POLL_MS = 2000;
 const GUARDIAN_POLL_MS = 1000;
+const HOLD_MS = 1500;
 const STATUS_RANK = { active: 0, help_requested: 1, ended: 2 };
 
 function newerSnapshot(previous: SessionSnapshot | null, next: SessionSnapshot): SessionSnapshot {
@@ -25,31 +29,6 @@ function safeDecode(value: string) {
   try { return decodeURIComponent(value); } catch { return ''; }
 }
 
-type IconName = 'signal' | 'arrow' | 'pin' | 'shield' | 'link' | 'check' | 'alert' | 'eye' | 'clock' | 'x' | 'heart' | 'external';
-
-function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
-  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true as const };
-  const paths: Record<IconName, ReactNode> = {
-    signal: <><path d="M3 16.5c4.5-6 13.5-6 18 0" /><path d="M6.5 19c3-4 8-4 11 0" /><circle cx="12" cy="21" r=".6" fill="currentColor" stroke="none" /></>,
-    arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
-    pin: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
-    shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></>,
-    link: <><path d="M10 13a5 5 0 0 0 7.1 0l2-2A5 5 0 0 0 12 3.9l-1.2 1.2" /><path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.2-1.2" /></>,
-    check: <path d="m5 12 4 4L19 6" />,
-    alert: <><path d="M12 3 2 21h20L12 3Z" /><path d="M12 9v5" /><path d="M12 17.5h.01" /></>,
-    eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" /><circle cx="12" cy="12" r="2.5" /></>,
-    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
-    x: <><path d="M5 5l14 14" /><path d="M19 5 5 19" /></>,
-    heart: <path d="M20.8 8.6c0 4.8-8.8 10.4-8.8 10.4S3.2 13.4 3.2 8.6a4.8 4.8 0 0 1 8.8-2.5 4.8 4.8 0 0 1 8.8 2.5Z" />,
-    external: <><path d="M13 5h6v6" /><path d="m19 5-9 9" /><path d="M19 13v6H5V5h6" /></>,
-  };
-  return <svg {...common}>{paths[name]}</svg>;
-}
-
-function Brand() {
-  return <div className="brand"><span className="brand-mark"><span /></span><span>Ghost<span className="brand-light">Signal</span></span></div>;
-}
-
 function readOwner(): OwnerCredentials | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -61,23 +40,8 @@ function readOwner(): OwnerCredentials | null {
   }
 }
 
-function relativeTime(date: string | null | undefined, now: number) {
-  if (!date) return 'No update yet';
-  const seconds = Math.max(0, Math.floor((now - Date.parse(date)) / 1000));
-  if (!Number.isFinite(seconds)) return 'Time unknown';
-  if (seconds < 5) return 'Just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.floor(minutes / 60)}h ago`;
-}
-
-function locationHealth(snapshot: SessionSnapshot | null, now: number) {
-  if (!snapshot?.location) return { level: 'waiting', label: 'Waiting for first location' };
-  const age = now - Date.parse(snapshot.location.recordedAt);
-  if (age > 60_000) return { level: 'stale', label: 'Location is stale' };
-  if (age > 15_000) return { level: 'delayed', label: 'Location is delayed' };
-  return { level: 'fresh', label: 'Location updating' };
+function vibrate(pattern: number | number[]) {
+  try { if ('vibrate' in navigator) navigator.vibrate(pattern); } catch { /* Haptics are optional. */ }
 }
 
 function MapFollow({ latitude, longitude }: { latitude: number; longitude: number }) {
@@ -94,12 +58,13 @@ function MapFollow({ latitude, longitude }: { latitude: number; longitude: numbe
   return null;
 }
 
-function SessionMap({ snapshot, compact = false }: { snapshot: SessionSnapshot | null; compact?: boolean }) {
+// `calm` keeps the walker's own map in its normal colors after a signal, so the screen gives nothing away.
+function SessionMap({ snapshot, calm = false }: { snapshot: SessionSnapshot | null; calm?: boolean }) {
   const location = snapshot?.location;
   const trail = snapshot?.trail || [];
   const point: [number, number] = location ? [location.latitude, location.longitude] : CAMPUS_CENTER;
-  const help = snapshot?.status === 'help_requested';
-  return <div className={`map-shell ${compact ? 'map-compact' : ''}`}>
+  const help = !calm && snapshot?.status === 'help_requested';
+  return <div className="app-map">
     <MapContainer center={point} zoom={location ? 16 : 14} scrollWheelZoom={false} zoomControl={false} className="map-canvas" aria-label="Map showing shared location near the University of Illinois campus">
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} referrerPolicy="strict-origin" />
       <ZoomControl position="bottomright" />
@@ -110,22 +75,8 @@ function SessionMap({ snapshot, compact = false }: { snapshot: SessionSnapshot |
         <MapFollow latitude={location.latitude} longitude={location.longitude} />
       </>}
     </MapContainer>
-    {!location && <div className="map-empty"><span className="map-empty-icon"><Icon name="pin" size={25} /></span><strong>Waiting for a location</strong><span>The map will update when a position is available.</span></div>}
-    <div className="map-caption"><span className="map-caption-dot" /> UNIVERSITY OF ILLINOIS · URBANA-CHAMPAIGN</div>
+    {!location && <div className="map-empty"><span className="map-empty-icon"><Icon name="pin" size={25} /></span><strong>Finding your location</strong><span>The map updates when a position is available.</span></div>}
   </div>;
-}
-
-function MiniStatus({ snapshot, now, connectionError }: { snapshot: SessionSnapshot | null; now: number; connectionError?: string | null }) {
-  const health = locationHealth(snapshot, now);
-  const label = connectionError ? 'Connection interrupted' : health.label;
-  const level = connectionError ? 'stale' : health.level;
-  return <div className={`mini-status ${level}`}><span className="status-pulse" /><span>{label}</span>{snapshot?.location && <span className="mini-time">{relativeTime(snapshot.location.recordedAt, now)}</span>}</div>;
-}
-
-function useNow() {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
-  return now;
 }
 
 function geolocationError(error: GeolocationPositionError) {
@@ -138,6 +89,145 @@ function firstLocation(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }));
 }
 
+function Fold({ title, summary, icon, children, defaultOpen = false }: { title: string; summary?: string; icon: Parameters<typeof Icon>[0]['name']; children: ReactNode; defaultOpen?: boolean }) {
+  return <details className="app-fold" open={defaultOpen}>
+    <summary><span className="fold-icon"><Icon name={icon} size={18} /></span><span className="fold-title"><strong>{title}</strong>{summary && <small>{summary}</small>}</span><Icon name="arrow" size={16} /></summary>
+    <div className="fold-body">{children}</div>
+  </details>;
+}
+
+// The help trigger is a neutral "Hold to check in" control. Holding is deliberate enough to avoid
+// pocket presses, and the screen barely changes afterwards so nobody nearby can tell.
+function HoldToCheckIn({ onSignal, disabled }: { onSignal: () => void; disabled: boolean }) {
+  const [progress, setProgress] = useState(0);
+  const frame = useRef(0);
+  const startedAt = useRef<number | null>(null);
+
+  const stop = () => {
+    cancelAnimationFrame(frame.current);
+    startedAt.current = null;
+    setProgress(0);
+  };
+  const tick = () => {
+    if (startedAt.current === null) return;
+    const value = Math.min(1, (performance.now() - startedAt.current) / HOLD_MS);
+    setProgress(value);
+    if (value >= 1) { stop(); vibrate([40, 60, 40]); onSignal(); return; }
+    frame.current = requestAnimationFrame(tick);
+  };
+  const begin = () => {
+    if (disabled || startedAt.current !== null) return;
+    startedAt.current = performance.now();
+    frame.current = requestAnimationFrame(tick);
+  };
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  return <button
+    type="button"
+    className={`hold-button ${progress > 0 ? 'holding' : ''}`}
+    style={{ '--hold': progress } as CSSProperties}
+    disabled={disabled}
+    onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); begin(); }}
+    onPointerUp={stop}
+    onPointerCancel={stop}
+    onContextMenu={event => event.preventDefault()}
+    onKeyDown={event => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); begin(); } }}
+    onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') stop(); }}
+    aria-label="Silent help signal. Press and hold for about two seconds to alert Campus Safety. The screen will barely change."
+  >
+    <span className="hold-ring" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" /><circle className="hold-progress" cx="22" cy="22" r="19" /></svg><Icon name="check" size={20} /></span>
+    <span className="hold-text"><strong>{disabled ? 'Sending…' : 'Hold to check in'}</strong><small>Press and hold</small></span>
+  </button>;
+}
+
+const QUIET_LABELS: Record<IncidentStatus, string> = {
+  new: 'Checked in · delivered',
+  acknowledged: 'Checked in · seen',
+  responding: 'Checked in · someone is on the way',
+  resolved: 'Check-in closed',
+};
+
+// After a signal the walker sees one low-key line; details stay folded unless they tap it.
+function QuietStatus({ incident, helpActive, onCancel, cancelling }: { incident: IncidentSummary; helpActive: boolean; onCancel: () => void; cancelling: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const stage = incident.status === 'new' ? 0 : incident.status === 'acknowledged' ? 1 : 2;
+  const steps = [
+    { label: 'Delivered to Campus Safety', at: incident.openedAt },
+    { label: 'Seen by a dispatcher', at: incident.acknowledgedAt },
+    { label: incident.unit ? `${incident.unit} heading to your live location` : 'Responder heading to you', at: incident.respondingAt },
+  ];
+  return <div className="quiet-status">
+    <button type="button" className="quiet-row" onClick={() => { setOpen(value => !value); setConfirming(false); }} aria-expanded={open}>
+      <span className="quiet-dots" aria-hidden="true">{[0, 1, 2].map(index => <i key={index} className={index <= stage ? 'on' : ''} />)}</span>
+      <span className="quiet-label">{helpActive ? QUIET_LABELS[incident.status] : 'Check-in cancelled'}</span>
+      <span className="quiet-time">{clockTime(incident.openedAt)}</span>
+    </button>
+    {open && <div className="quiet-detail">
+      <ol>{steps.map(step => <li key={step.label} className={step.at ? 'done' : ''}><span>{step.label}</span><time>{step.at ? clockTime(step.at) : '—'}</time></li>)}</ol>
+      <p>Keep walking toward people and light if you can. Campus Safety won’t call or text you. You’ll feel a short vibration when a dispatcher sees it, and a double vibration when a responder is on the way.</p>
+      {!helpActive && <p>Campus Safety may still check on you in person.</p>}
+      {helpActive && (!confirming
+        ? <button type="button" className="text-button" onClick={() => setConfirming(true)}>Cancel check-in</button>
+        : <div className="quiet-confirm"><span>Cancel? Campus Safety will still verify you’re okay.</span><button type="button" className="plan-button" disabled={cancelling} onClick={onCancel}>{cancelling ? 'Cancelling…' : 'Yes, cancel'}</button><button type="button" className="text-button" onClick={() => setConfirming(false)}>Keep it</button></div>)}
+    </div>}
+  </div>;
+}
+
+function useStatusHaptics(status: IncidentStatus | null) {
+  const previous = useRef(status);
+  useEffect(() => {
+    if (status !== previous.current) {
+      if (status === 'acknowledged') vibrate(120);
+      if (status === 'responding') vibrate([120, 100, 120]);
+      if (status === 'resolved') vibrate(60);
+    }
+    previous.current = status;
+  }, [status]);
+}
+
+function ResponderDetails({ credentials, snapshot, onSnapshot }: {
+  credentials: OwnerCredentials;
+  snapshot: SessionSnapshot;
+  onSnapshot: (next: SessionSnapshot) => void;
+}) {
+  const [description, setDescription] = useState('');
+  const [guardianPhone, setGuardianPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (contacts: ContactsInput) => {
+    setSaving(true); setError(null); setSaved(false);
+    try {
+      onSnapshot(await setContacts(credentials.sessionId, credentials.ownerToken, contacts));
+      setDescription(''); setGuardianPhone(''); setSaved(true);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setSaving(false); }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const contacts: ContactsInput = {};
+    if (description.trim()) contacts.walkerDescription = description.trim();
+    if (guardianPhone.trim()) contacts.guardianPhone = guardianPhone.trim();
+    if (Object.keys(contacts).length) void save(contacts);
+  };
+
+  return <form className="plan-form" onSubmit={submit}>
+    <label className="field"><span>What are you wearing?</span><textarea rows={2} maxLength={120} value={description} placeholder={snapshot.descriptionProvided ? 'Saved. Type to replace it' : 'e.g. red jacket, black backpack, glasses'} onChange={event => setDescription(event.target.value)} /></label>
+    <p className="field-hint">Responders use this to find you without calling you.</p>
+    <label className="field"><span>Guardian’s phone for text alerts</span><input type="tel" inputMode="tel" autoComplete="off" value={guardianPhone} placeholder={snapshot.textAlertsEnabled ? 'Saved. Type to replace it' : '+1 217 555 0123'} onChange={event => setGuardianPhone(event.target.value)} /></label>
+    <button className="dark-button" type="submit" disabled={saving || (!description.trim() && !guardianPhone.trim())}><span>{saving ? 'Saving…' : saved ? 'Saved' : 'Save'}</span><Icon name="check" size={18} /></button>
+    {(snapshot.descriptionProvided || snapshot.textAlertsEnabled) && <div className="plan-buttons">
+      {snapshot.descriptionProvided && <button type="button" className="text-button" disabled={saving} onClick={() => void save({ walkerDescription: null })}>Clear description</button>}
+      {snapshot.textAlertsEnabled && <button type="button" className="text-button" disabled={saving} onClick={() => void save({ guardianPhone: null })}>Stop guardian texts</button>}
+    </div>}
+    <p className="field-hint">Deleted when your walk ends.</p>
+    {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+  </form>;
+}
+
 function StudentApp() {
   const [credentials, setCredentials] = useState<OwnerCredentials | null>(readOwner);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
@@ -148,11 +238,13 @@ function StudentApp() {
   const [ownerInvalid, setOwnerInvalid] = useState(false);
   const [copyNote, setCopyNote] = useState('');
   const [showLink, setShowLink] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const now = useNow();
   const demoIndex = useRef(0);
   const startLock = useRef(false);
   const lastAcceptedFixAt = useRef(0);
   const trackingActive = Boolean(snapshot && snapshot.status !== 'ended' && !ownerInvalid);
+  useStatusHaptics(snapshot?.incident?.status ?? null);
 
   useEffect(() => {
     if (!credentials || ownerInvalid) return;
@@ -265,7 +357,7 @@ function StudentApp() {
     if (!credentials) return;
     setBusy('help'); setError(null);
     try { const next = await requestHelp(credentials.sessionId, credentials.ownerToken); setSnapshot(previous => newerSnapshot(previous, next)); }
-    catch (cause) { setError((cause as Error).message); }
+    catch (cause) { setError(`Check-in didn’t send: ${(cause as Error).message} Hold again to retry.`); vibrate([300, 100, 300]); }
     finally { setBusy(null); }
   };
 
@@ -282,59 +374,240 @@ function StudentApp() {
     setBusy('end'); setError(null);
     try { const next = await endSession(credentials.sessionId, credentials.ownerToken); setSnapshot(previous => newerSnapshot(previous, next)); }
     catch (cause) { setError((cause as Error).message); }
-    finally { setBusy(null); }
+    finally { setBusy(null); setConfirmEnd(false); }
   };
 
   const shareUrl = credentials ? `${window.location.origin}/watch/${encodeURIComponent(credentials.sessionId)}#${encodeURIComponent(credentials.guardianToken)}` : '';
   const copy = async () => {
-    try { await navigator.clipboard.writeText(shareUrl); setCopyNote('Private link copied'); }
+    try { await navigator.clipboard.writeText(shareUrl); setCopyNote('Link copied'); }
     catch { setShowLink(true); setCopyNote('Select and copy the link below'); }
   };
+  const share = async () => {
+    if (navigator.share) {
+      try { await navigator.share({ title: 'Follow my walk', text: 'You can follow my walk here:', url: shareUrl }); return; } catch { /* Fall back to copying. */ }
+    }
+    await copy();
+  };
+  const resetToStart = () => { sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); setOwnerInvalid(false); setPollError(null); window.scrollTo(0, 0); };
 
   const ended = snapshot?.status === 'ended';
   const helpRequested = snapshot?.status === 'help_requested';
+  const incident = snapshot?.incident ?? null;
+  const showQuietStatus = Boolean(incident && (helpRequested || incident.status !== 'resolved'));
 
-  return <div className="site-shell">
-    <header className="topbar"><Brand /><div className="topbar-right"><span className="campus-tag"><span /> BUILT FOR CAMPUS WALKS</span></div></header>
-    {!credentials ? <main className="landing">
-      <div className="landing-grid">
-        <section className="hero-copy">
-          <div className="eyebrow"><span className="eyebrow-line" /> A PRIVATE WALK COMPANION</div>
-          <h1>Walk your way.<br /><em>Stay connected.</em></h1>
-          <p className="hero-lead">For the walk when something feels off. Share your live location with someone you trust, send a quiet help signal if you need it, and stop sharing when you’re safe.</p>
-          <div className="step-flow"><span><b>01</b> Start</span><span><b>02</b> Share</span><span><b>03</b> Keep moving</span></div>
-          <div className="hero-assurance"><span className="assurance-icon"><Icon name="shield" size={19} /></span><span>Your guardian can view your walk only with the private link you choose to share.</span></div>
+  if (!credentials) {
+    return <div className="app">
+      <header className="app-bar"><Brand /><span className="proto-pill">Prototype</span></header>
+      <main className="app-body landing-body">
+        <section className="intro">
+          <h1>Get help without making a scene.</h1>
+          <p>Campus emergency phones mean running to a pole and making a call where everyone can see. GhostSignal lets you quietly alert Campus Safety from your pocket, without letting anyone know you noticed them.</p>
         </section>
-        <section className="start-card" aria-label="Start a walk">
-          <div className="start-card-top"><span className="card-step">01 / START YOUR WALK</span><span className="small-signal"><i /><i /><i /></span></div>
-          <h2>A little peace of mind, on your terms.</h2>
-          <p>We’ll ask for your location when you start. Keep this page open during your walk so updates can continue.</p>
-          <button className="primary-button" disabled={busy !== null} onClick={() => void start('live')}><span>{busy === 'live' ? 'Finding your location…' : 'Start a live walk'}</span><Icon name="arrow" /></button>
-          <div className="card-separator"><span>OR EXPLORE FIRST</span></div>
+        <ol className="how-list">
+          <li><b>1</b><div><strong>Start a walk</strong><span>Your location is shared only while the walk is on.</span></div></li>
+          <li><b>2</b><div><strong>Press and hold “Check in”</strong><span>Campus Safety gets your live location. Your screen barely changes, so nobody nearby can tell.</span></div></li>
+          <li><b>3</b><div><strong>Feel for updates</strong><span>Short vibrations tell you a dispatcher has seen it and when someone is on the way. No calls, no texts, no need to look.</span></div></li>
+        </ol>
+        <div className="landing-actions">
+          <button className="primary-button" disabled={busy !== null} onClick={() => void start('live')}><span>{busy === 'live' ? 'Finding your location…' : 'Start a walk'}</span><Icon name="arrow" /></button>
           <button className="secondary-button" disabled={busy !== null} onClick={() => void start('demo')}><span>Try a simulated walk</span><Icon name="arrow" size={18} /></button>
-          <p className="demo-disclosure">Demo mode sends a clearly labeled simulated route. It does not use your device location.</p>
+          <p className="demo-disclosure">The simulated walk uses a labeled demo route, not your location.</p>
           {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
-        </section>
-      </div>
-      <div className="landing-bottom"><span><span className="little-cross">✳</span> MADE FOR THE MOMENTS BETWEEN HERE AND THERE</span><span>URBANA · CHAMPAIGN</span></div>
-    </main> : !snapshot ? <main className="session-layout"><div className="restore-card"><span className="round-icon"><Icon name={ownerInvalid ? 'alert' : 'signal'} size={22} /></span><h1>{ownerInvalid ? 'Walk unavailable.' : 'Reconnecting to your walk.'}</h1><p>{ownerInvalid ? 'This saved session could not be found or opened. You can return to the start screen.' : pollError ? `We could not verify this walk yet: ${pollError} We’ll keep trying while this page stays open.` : 'Checking the session before showing your sharing controls. Your browser may ask for location again.'}</p>{ownerInvalid && <button className="dark-button" onClick={() => { sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setOwnerInvalid(false); setPollError(null); window.scrollTo(0, 0); }}>Return to start <Icon name="arrow" size={17} /></button>}</div></main> : <main className="session-layout">
-      <div className="session-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> {credentials.mode === 'demo' ? 'SIMULATED WALK · DEMO MODE' : 'YOUR LIVE WALK'}</div><h1>{ended ? snapshot.endedReason === 'expired' ? 'Walk expired.' : 'Walk complete.' : helpRequested ? 'Help signal sent.' : 'You’re on your way.'}</h1><p>{ended ? snapshot.endedReason === 'expired' ? 'The session time limit was reached. Location sharing stopped automatically.' : 'Your location is no longer being shared.' : helpRequested ? 'Anyone with your private link can see that you requested help. If you are in immediate danger, call emergency services.' : 'Your private link shows your latest location and path while this page stays open.'}</p></div><div className={`session-state ${ended ? 'ended' : helpRequested ? 'help' : ''}`}><span />{ended ? 'SHARING ENDED' : helpRequested ? 'HELP REQUESTED' : 'SESSION ACTIVE'}</div></div>
-      {credentials.mode === 'demo' && <div className="demo-banner"><Icon name="eye" size={17} /><strong>Demo mode</strong><span>This route is simulated. No device location is being used.</span></div>}
-      {helpRequested && !ended && <div className="help-banner"><Icon name="alert" size={20} /><div><strong>Your help status is visible on the guardian link.</strong><span>This site does not contact emergency services. Call local emergency services if you need immediate help.</span></div></div>}
-      {error && <div className="inline-error session-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
-      {(pollError || locationError) && !ended && <div className="connection-notice" role="status"><Icon name="alert" size={17} /><span>Updates may be delayed: {locationError || pollError}</span></div>}
-      {ended ? <div className="complete-card"><span className="complete-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={27} /></span><h2>{snapshot.endedReason === 'expired' ? 'Session time limit reached' : 'Sharing stopped'}</h2><p>{snapshot.endedReason === 'expired' ? 'This walk expired automatically. The location and route have been removed from the private link.' : 'You ended this walk. The location and route have been removed from the private link.'}</p></div> : <div className="session-grid"><section className="map-card"><div className="panel-head"><div><span className="overline">YOUR ROUTE</span><h2>{snapshot.location ? 'Current location' : 'Location pending'}</h2></div><MiniStatus snapshot={snapshot} now={now} connectionError={pollError || locationError} /></div><SessionMap snapshot={snapshot} compact /><div className="map-foot"><span><Icon name="pin" size={16} />{snapshot.location ? `Accuracy ±${Math.round(snapshot.location.accuracy)} m` : 'Waiting for GPS'}</span><span><Icon name="clock" size={16} />{snapshot.location ? `Captured ${relativeTime(snapshot.location.recordedAt, now)}` : 'No location yet'}</span></div></section>
-      <aside className="side-stack"><section className="share-card"><div className="round-icon"><Icon name="link" size={21} /></div><span className="overline">INVITE YOUR PERSON</span><h2>Share this walk.</h2><p>Send this private link to someone you trust. The link gives them a read-only view of your location and status.</p><button className="dark-button" onClick={() => void copy()}><span>{copyNote || 'Copy guardian link'}</span><Icon name={copyNote === 'Private link copied' ? 'check' : 'link'} size={18} /></button><a className="open-guardian" href={shareUrl} target="_blank" rel="noreferrer">Open guardian view <Icon name="external" size={16} /></a>{showLink && <input className="link-input" aria-label="Guardian link" readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}<div className="card-note"><Icon name="shield" size={15} />Anyone with this link can view the walk. Share it privately. OpenStreetMap receives the map area your browser requests.</div></section>
-      <section className="actions-card"><span className="overline">YOUR CONTROLS</span>{!helpRequested ? <button className="action-row help-action" disabled={busy !== null} onClick={() => void help()}><span className="action-icon"><Icon name="alert" size={20} /></span><span><strong>{busy === 'help' ? 'Sending help signal…' : 'I need help'}</strong><small>Quietly update your guardian view</small></span><Icon name="arrow" size={19} /></button> : <button className="action-row retract-action" disabled={busy !== null} onClick={() => void retract()}><span className="action-icon"><Icon name="check" size={20} /></span><span><strong>{busy === 'retract' ? 'Retracting help signal…' : 'Retract help request'}</strong><small>Keep sharing your walk</small></span><Icon name="arrow" size={19} /></button>}<button className="action-row safe-action" disabled={busy !== null} onClick={() => void end()}><span className="action-icon"><Icon name="heart" size={20} /></span><span><strong>{busy === 'end' ? 'Ending sharing…' : 'I’m safe — end walk'}</strong><small>Stop sharing your location</small></span><Icon name="arrow" size={19} /></button></section></aside></div>}
-      {!ended && <div className="page-open-note"><Icon name="eye" size={18} /><div><strong>Keep this page open during your walk.</strong> Browser location updates may pause if you close the tab, lock your phone, or move the app to the background.</div></div>}
-      {ended && <button className="new-walk" onClick={() => { sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); window.scrollTo(0, 0); }}>Start another walk <Icon name="arrow" size={17} /></button>}
-    </main>}
-    <footer className="footer"><span>GHOSTSIGNAL · A CAMPUS SAFETY PROTOTYPE</span><span>Location sharing works while this page stays active.</span></footer>
+        </div>
+        <p className="proto-note"><Icon name="alert" size={15} />Prototype: the Campus Safety console is not monitored by UIUC Police. If you can safely call, 911 is still the fastest way to get help.</p>
+      </main>
+    </div>;
+  }
+
+  if (!snapshot) {
+    return <div className="app">
+      <header className="app-bar"><Brand /></header>
+      <main className="app-body"><div className="restore-card"><span className="round-icon"><Icon name={ownerInvalid ? 'alert' : 'signal'} size={22} /></span><h1>{ownerInvalid ? 'Walk unavailable.' : 'Reconnecting…'}</h1><p>{ownerInvalid ? 'This saved walk could not be opened.' : pollError ? `Still trying: ${pollError}` : 'Checking your walk. Your browser may ask for location again.'}</p>{ownerInvalid && <button className="dark-button" onClick={resetToStart}>Back to start <Icon name="arrow" size={17} /></button>}</div></main>
+    </div>;
+  }
+
+  if (ended) {
+    return <div className="app">
+      <header className="app-bar"><Brand /></header>
+      <main className="app-body">
+        <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><h1>{snapshot.endedReason === 'expired' ? 'Walk timed out.' : 'Walk ended.'}</h1><p>Your location is no longer shared, and your saved details were deleted.</p><button className="dark-button" onClick={resetToStart}>Start another walk <Icon name="arrow" size={17} /></button></div>
+      </main>
+    </div>;
+  }
+
+  const location = snapshot.location;
+  return <div className="app">
+    <header className="app-bar"><Brand /><span className="app-bar-meta"><i className={pollError || locationError ? 'bad' : ''} />{credentials.mode === 'demo' ? 'Demo · ' : ''}{elapsed(snapshot.startedAt, now)}</span></header>
+    <main className="app-body walk-body">
+      {credentials.mode === 'demo' && <div className="demo-strip"><Icon name="eye" size={15} />Simulated walk. No device location is used.</div>}
+      <section className="walk-map">
+        <SessionMap snapshot={snapshot} calm />
+        <div className="map-chip">{location ? `±${Math.round(location.accuracy)} m · ${relativeTime(location.recordedAt, now)}` : 'Finding GPS…'}</div>
+      </section>
+      {(pollError || locationError) && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />Updates delayed: {locationError || pollError}</div>}
+      {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+      <section className="signal-card">
+        {helpRequested ? null : <HoldToCheckIn onSignal={() => void help()} disabled={busy === 'help'} />}
+        {showQuietStatus && incident && <QuietStatus incident={incident} helpActive={helpRequested} onCancel={() => void retract()} cancelling={busy === 'retract'} />}
+      </section>
+      <Fold title="Share with someone you trust" summary="Optional. They’ll be notified if you check in." icon="link">
+        <p className="fold-text">They can follow your location and get a notification on their phone when you check in. They’ll be asked not to call or text you.</p>
+        <button className="dark-button" onClick={() => void share()}><span>{copyNote || 'Share private link'}</span><Icon name={copyNote === 'Link copied' ? 'check' : 'link'} size={18} /></button>
+        <a className="open-guardian" href={shareUrl} target="_blank" rel="noreferrer">Open guardian view <Icon name="external" size={16} /></a>
+        {showLink && <input className="link-input" aria-label="Guardian link" readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}
+      </Fold>
+      <Fold title="Help responders find you" summary={snapshot.descriptionProvided ? 'Description saved' : 'Optional. Add what you’re wearing.'} icon="user">
+        <ResponderDetails credentials={credentials} snapshot={snapshot} onSnapshot={next => setSnapshot(previous => newerSnapshot(previous, next))} />
+      </Fold>
+      {!confirmEnd
+        ? <button className="end-walk" disabled={busy !== null} onClick={() => setConfirmEnd(true)}><Icon name="heart" size={18} />I’ve arrived. End walk</button>
+        : <div className="end-confirm"><span>{helpRequested ? 'Ending stops live location. Campus Safety keeps your last location until they close the check-in.' : 'Stop sharing your location?'}</span><button className="dark-button" disabled={busy !== null} onClick={() => void end()}><span>{busy === 'end' ? 'Ending…' : 'End walk'}</span><Icon name="check" size={18} /></button><button className="text-button" onClick={() => setConfirmEnd(false)}>Keep walking</button></div>}
+      <p className="app-foot">Keep GhostSignal open while you walk. Updates may pause if the screen locks or you switch apps.</p>
+    </main>
   </div>;
 }
 
 function positionPayload(position: GeolocationPosition) {
   return { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy, recordedAt: new Date(position.timestamp).toISOString() };
+}
+
+// Shows the guardian how far Campus Safety has progressed with the signal.
+function IncidentTracker({ incident, helpActive, now }: { incident: IncidentSummary; helpActive: boolean; now: number }) {
+  const steps = [
+    { label: 'Signal sent', at: incident.openedAt, detail: `Ref ${incident.reference}` },
+    { label: 'Campus Safety has it', at: incident.acknowledgedAt, detail: 'Watching live location' },
+    { label: incident.unit ? `${incident.unit} on the way` : 'Responder on the way', at: incident.respondingAt, detail: 'Heading to live location' },
+    { label: 'Closed', at: incident.resolvedAt, detail: incident.outcome ? INCIDENT_OUTCOMES[incident.outcome] : '' },
+  ];
+  const current = steps.findIndex(step => !step.at);
+  const waiting = incident.status === 'new' && now - Date.parse(incident.openedAt) > 60_000;
+  return <section className={`tracker-card ${incident.status}`} aria-labelledby="tracker-title" aria-live="polite">
+    <span className="overline">CAMPUS SAFETY · {incident.reference}</span>
+    <h2 id="tracker-title">{incident.status === 'new' ? 'Delivered. Waiting for a dispatcher.' : incident.status === 'acknowledged' ? 'Campus Safety is watching.' : incident.status === 'responding' ? 'A responder is on the way.' : 'Closed.'}</h2>
+    <ol className="tracker-steps">
+      {steps.map((step, index) => <li key={step.label} className={step.at ? 'done' : index === current ? 'current' : ''}>
+        <span className="tracker-dot">{step.at ? <Icon name="check" size={13} /> : null}</span>
+        <div><strong>{step.label}</strong><span>{step.at ? `${clockTime(step.at)} · ${step.detail}` : index === current ? 'Waiting…' : ''}</span></div>
+      </li>)}
+    </ol>
+    {incident.status !== 'resolved' && !helpActive && <p className="tracker-note">The walker cancelled. Campus Safety will still check on them in person.</p>}
+    {waiting && <p className="tracker-warn"><Icon name="alert" size={16} />Not seen by a dispatcher yet. If you believe they’re in immediate danger, call 911 yourself and give this location. Don’t call the walker.</p>}
+  </section>;
+}
+
+function GuardianNote({ sessionId, token }: { sessionId: string; token: string }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    setBusy(true); setError(null);
+    try { await sendGuardianNote(sessionId, token, text.trim()); setText(''); setSent(count => count + 1); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  };
+  return <form className="plan-card note-card" onSubmit={submit}>
+    <span className="overline">HELP CAMPUS SAFETY</span>
+    <h2>Share what you know</h2>
+    <p>This goes straight to the dispatcher, not to the walker.</p>
+    <label className="field"><span className="sr-only">Note for Campus Safety</span><textarea rows={3} maxLength={280} value={text} placeholder="Where they were headed, what they’re wearing, who they were with…" onChange={event => setText(event.target.value)} /></label>
+    <button className="dark-button" disabled={busy || !text.trim()}><span>{busy ? 'Sending…' : 'Send to Campus Safety'}</span><Icon name="arrow" size={18} /></button>
+    {sent > 0 && <p className="note-sent"><Icon name="check" size={15} />Sent to Campus Safety{sent > 1 ? ` (${sent})` : ''}.</p>}
+    {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
+  </form>;
+}
+
+type PushState = 'checking' | 'unsupported' | 'idle' | 'working' | 'on' | 'blocked' | 'error';
+
+function urlBase64ToUint8Array(value: string) {
+  const padded = (value + '='.repeat((4 - value.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(padded), char => char.charCodeAt(0));
+}
+
+// Registers this device for push notifications about one walk, and plays in-tab sounds.
+function useGuardianAlerts(sessionId: string, token: string, active: { help: boolean; stale: boolean; incidentStatus: string | null }) {
+  const supported = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const [pushState, setPushState] = useState<PushState>(supported ? 'checking' : 'unsupported');
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const audio = useRef<AudioContext | null>(null);
+  const previous = useRef(active);
+  const baseTitle = useRef(document.title);
+
+  const register = async (subscription: PushSubscription) => {
+    const json = subscription.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
+    await addPushSubscription(sessionId, token, { endpoint: json.endpoint, keys: json.keys });
+    try { await (await caches.open(LINK_CACHE)).put(`/links/${encodeURIComponent(sessionId)}`, new Response(window.location.href)); } catch { /* Tapping a notification then opens the page without the key. */ }
+  };
+
+  useEffect(() => {
+    if (!supported || !token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (Notification.permission !== 'granted') { if (!cancelled) setPushState(Notification.permission === 'denied' ? 'blocked' : 'idle'); return; }
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        const existing = await registration.pushManager.getSubscription();
+        if (existing) { await register(existing); if (!cancelled) setPushState('on'); }
+        else if (!cancelled) setPushState('idle');
+      } catch { if (!cancelled) setPushState('idle'); }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId, token]);
+
+  const enable = async () => {
+    try { audio.current ??= new AudioContext(); await audio.current.resume(); } catch { /* Sound is optional. */ }
+    if (!supported) return;
+    setPushState('working'); setPushError(null);
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') { setPushState('blocked'); return; }
+      await navigator.serviceWorker.ready;
+      const { publicKey } = await getPushPublicKey();
+      const subscription = await registration.pushManager.getSubscription()
+        ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+      await register(subscription);
+      setPushState('on');
+    } catch (cause) {
+      setPushError((cause as Error).message);
+      setPushState('error');
+    }
+  };
+
+  useEffect(() => {
+    const before = previous.current;
+    if (active.help && !before.help) { setAnnouncement('Silent help signal from the walker. Campus Safety is notified. Do not call or text them.'); playTones(audio.current, 3, 880); }
+    else if (active.incidentStatus !== before.incidentStatus && active.incidentStatus === 'acknowledged') { setAnnouncement('Campus Safety is watching the walker’s location.'); playTones(audio.current, 1, 660); }
+    else if (active.incidentStatus !== before.incidentStatus && active.incidentStatus === 'responding') { setAnnouncement('A responder is on the way.'); playTones(audio.current, 2, 660); }
+    else if (active.stale && !before.stale) { setAnnouncement('The walker’s location is over a minute old.'); playTones(audio.current, 1, 520); }
+    previous.current = active;
+    const title = active.help ? 'Silent help signal' : active.stale ? 'Location stale' : null;
+    document.title = title ? `⚠ ${title} · GhostSignal` : baseTitle.current;
+  }, [active.help, active.stale, active.incidentStatus]);
+
+  useEffect(() => () => { document.title = baseTitle.current; }, []);
+
+  return { pushState, pushError, announcement, enable };
+}
+
+function TextStatus({ snapshot, now }: { snapshot: SessionSnapshot; now: number }) {
+  const location = snapshot.location;
+  const help = snapshot.status === 'help_requested';
+  const health = locationHealth(location, now);
+  return <div className="text-status">
+    <p className={`text-status-lead ${help ? 'warn' : ''}`}>{help ? 'Silent help signal.' : 'Walk in progress.'}</p>
+    <dl>
+      <div><dt>Last update</dt><dd>{location ? `${relativeTime(location.recordedAt, now)} · ${health.label}` : 'Waiting for location'}</dd></div>
+      <div><dt>Movement</dt><dd>{movementSummary(location, snapshot.trail)}</dd></div>
+      {location && <div><dt>Accuracy</dt><dd>{accuracyLabel(location.accuracy)}</dd></div>}
+      {snapshot.incident && snapshot.incident.status !== 'resolved' && <div><dt>Campus Safety</dt><dd>{snapshot.incident.status === 'new' ? 'Delivered, not yet seen' : snapshot.incident.status === 'acknowledged' ? 'Watching' : `${snapshot.incident.unit ?? 'A responder'} on the way`}</dd></div>}
+      {location && <div><dt>Coordinates</dt><dd>{location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}</dd></div>}
+    </dl>
+    {location && <a className="text-status-link" href={mapLink(location)} target="_blank" rel="noreferrer">Open this location in a map <Icon name="external" size={18} /></a>}
+  </div>;
 }
 
 function GuardianApp({ sessionId }: { sessionId: string }) {
@@ -369,23 +642,78 @@ function GuardianApp({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId, token]);
 
+  const [textView, setTextView] = useState(() => { try { return localStorage.getItem(TEXT_VIEW_KEY) === '1'; } catch { return false; } });
+  const toggleTextView = () => {
+    setTextView(value => {
+      try { localStorage.setItem(TEXT_VIEW_KEY, value ? '0' : '1'); } catch { /* Preference is optional. */ }
+      return !value;
+    });
+  };
+
   const ended = snapshot?.status === 'ended';
   const help = snapshot?.status === 'help_requested';
-  const health = locationHealth(snapshot, now);
-  return <div className="site-shell watch-site"><header className="topbar"><Brand /><span className="watch-header-label"><Icon name="eye" size={17} /> PRIVATE GUARDIAN VIEW</span></header>
-    <main className="watch-main"><div className="watch-intro"><div><div className="eyebrow"><span className="eyebrow-line" /> A WALK SHARED WITH YOU</div><h1>{ended ? snapshot?.endedReason === 'expired' ? 'This walk expired.' : 'This walk has ended.' : help ? 'Help has been requested.' : 'Stay in the loop.'}</h1><p>{ended ? snapshot?.endedReason === 'expired' ? 'The session time limit was reached. Sharing stopped automatically and location details were removed.' : 'The walker ended sharing. Location details and the route have been removed.' : help ? 'The walker used “I need help.” Check in with them directly. If there is immediate danger, contact emergency services.' : 'You can see the walker’s latest shared location and movement path here.'}</p></div>{snapshot && <div className={`watch-badge ${ended ? 'ended' : help ? 'help' : ''}`}><span />{ended ? 'WALK ENDED' : help ? 'HELP REQUESTED' : 'WALK IN PROGRESS'}</div>}</div>
-    {snapshot?.mode === 'demo' && <div className="demo-banner"><Icon name="eye" size={17} /><strong>Simulated walk</strong><span>These locations are generated for a demo, not from a person’s device.</span></div>}
-    {help && !ended && <div className="guardian-help"><span className="guardian-help-icon"><Icon name="alert" size={25} /></span><div><strong>The walker requested help</strong><p>Reach out to them now. This app does not alert emergency services or verify that anyone is responding.</p></div></div>}
-    {!token && <div className="watch-error"><Icon name="link" size={23} /><strong>Private link incomplete</strong><span>Ask the walker to send you the full guardian link.</span></div>}
-    {token && error && !snapshot && <div className="watch-error"><Icon name="alert" size={23} /><strong>Couldn’t load this walk</strong><span>{error}</span></div>}
-    {token && !error && !snapshot && <div className="loading-view"><span className="loader" />Connecting to the walk…</div>}
-    {snapshot && (ended ? <div className="complete-card"><span className="complete-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={27} /></span><h2>{snapshot.endedReason === 'expired' ? 'Session expired' : 'The walker ended this walk'}</h2><p>Location and route details are no longer available through this link.</p></div> : <div className="watch-grid"><section className="watch-map-card"><div className="panel-head"><div><span className="overline">LIVE MAP</span><h2>Shared location</h2></div><MiniStatus snapshot={snapshot} now={now} connectionError={error} /></div><SessionMap snapshot={snapshot} /><div className="map-foot"><span><Icon name="pin" size={16} />{snapshot.location ? `Accuracy ±${Math.round(snapshot.location.accuracy)} m` : 'No position received yet'}</span><span><Icon name="clock" size={16} />{snapshot.location ? `Captured ${relativeTime(snapshot.location.recordedAt, now)}` : 'Waiting for location'}</span></div></section><aside className="watch-side"><div className="detail-card"><span className="overline">WALK DETAILS</span><div className="detail-row"><span>Started</span><strong>{new Date(snapshot.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</strong></div><div className="detail-row"><span>Location</span><strong>{snapshot.location ? `${snapshot.location.latitude.toFixed(5)}, ${snapshot.location.longitude.toFixed(5)}` : 'Waiting'}</strong></div><div className="detail-row"><span>Signal</span><strong className={health.level === 'stale' || error ? 'detail-warn' : ''}>{error ? 'Connection interrupted' : health.label}</strong></div><div className="detail-row"><span>Location received</span><strong>{relativeTime(snapshot.location?.receivedAt, now)}</strong></div><div className="detail-row"><span>View refreshed</span><strong>{relativeTime(lastCheckedAt, now)}</strong></div><div className="detail-row"><span>Sharing</span><strong>Active</strong></div></div><div className="guardian-note"><Icon name="shield" size={20} /><div><strong>What this view means</strong><p>Positions update when the walker’s browser sends them. An old timestamp may mean their page is closed, their phone is locked, or their connection is lost. This view does not confirm that anyone is watching or responding. OpenStreetMap receives the map area your browser requests.</p></div></div></aside></div>)}
-    {snapshot && error && <div className="connection-notice" role="status"><Icon name="alert" size={17} />Updates are interrupted: {error}</div>}
-    {snapshot && !ended && health.level === 'stale' && <div className="stale-notice" role="status"><Icon name="clock" size={18} />This location is over a minute old. Contact the walker directly if you are concerned.</div>}
-    </main><footer className="footer"><span>GHOSTSIGNAL · PRIVATE WALK VIEW</span><span>Only people with this link can open this view.</span></footer></div>;
+  const health = locationHealth(snapshot?.location, now);
+  const incident = snapshot?.incident ?? null;
+  const incidentOpen = Boolean(incident && incident.status !== 'resolved');
+  const alerts = useGuardianAlerts(sessionId, token, { help: Boolean(help), stale: Boolean(snapshot && !ended && health.level === 'stale'), incidentStatus: incident?.status ?? null });
+  const isApple = /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+  return <div className={`app watch-app ${help ? 'alerting' : ''}`}>
+    <div className="sr-only" role="alert" aria-live="assertive">{alerts.announcement}</div>
+    <header className="app-bar"><Brand /><span className="app-bar-meta"><Icon name="eye" size={15} />Guardian</span></header>
+    <main className="app-body">
+      {!token && <div className="restore-card"><span className="round-icon"><Icon name="link" size={22} /></span><h1>Link incomplete.</h1><p>Ask the walker to share the full link again.</p></div>}
+      {token && error && !snapshot && <div className="restore-card"><span className="round-icon"><Icon name="alert" size={22} /></span><h1>Couldn’t load this walk.</h1><p>{error}</p></div>}
+      {token && !error && !snapshot && <div className="loading-view"><span className="loader" />Connecting…</div>}
+      {snapshot && <>
+        <section className="watch-hero">
+          <span className={`watch-badge ${ended ? 'ended' : help ? 'help' : ''}`}><span />{ended ? 'WALK ENDED' : help ? 'SILENT HELP SIGNAL' : 'WALK IN PROGRESS'}</span>
+          <h1>{ended ? snapshot.endedReason === 'expired' ? 'This walk timed out.' : 'This walk has ended.' : help ? 'They quietly asked for help.' : 'You’re following a walk.'}</h1>
+          {!ended && !help && <p>You’ll get a notification if they check in for help.</p>}
+        </section>
+        {snapshot.mode === 'demo' && <div className="demo-strip"><Icon name="eye" size={15} />Simulated walk for a demo.</div>}
+        {help && !ended && <section className="guardian-alert" role="status">
+          <strong><Icon name="x" size={18} />Don’t call or text them</strong>
+          <p>They used a silent signal because they can’t safely talk right now. A ringing phone or a message on their screen could alert whoever they’re worried about.</p>
+          <p>Campus Safety is notified and can see their live location.</p>
+        </section>}
+        {!ended && incident && (help || incidentOpen) && <IncidentTracker incident={incident} helpActive={Boolean(help)} now={now} />}
+        {!ended && incidentOpen && <GuardianNote sessionId={sessionId} token={token} />}
+        {!ended && alerts.pushState !== 'on' && <section className="notify-card" aria-labelledby="notify-title">
+          <span className="notify-icon"><Icon name="bell" size={22} /></span>
+          <div>
+            <h2 id="notify-title">Get notified on this phone</h2>
+            <p>{alerts.pushState === 'unsupported' ? isApple ? 'On iPhone, add this page to your Home Screen first: tap Share, then “Add to Home Screen,” and open the link from there.' : 'This browser can’t receive notifications. Keep this page open to hear an alert.' : alerts.pushState === 'blocked' ? 'Notifications are blocked for this site. Allow them in your browser settings.' : 'Know the moment they check in for help, even when this page is closed.'}</p>
+            {alerts.pushError && <p className="notify-error">{alerts.pushError}</p>}
+          </div>
+          <button className="dark-button" disabled={alerts.pushState === 'working' || alerts.pushState === 'checking'} onClick={() => void alerts.enable()}><span>{alerts.pushState === 'working' ? 'Turning on…' : alerts.pushState === 'unsupported' ? 'Turn on alert sound' : 'Turn on notifications'}</span><Icon name="bell" size={18} /></button>
+        </section>}
+        {ended ? <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><p>Location and route details are no longer available through this link.</p></div> : <>
+          <section className="watch-map-card">
+            <div className="watch-map-head">
+              <span className={`fresh ${error ? 'stale' : health.level}`}>{error ? 'Connection interrupted' : snapshot.location ? `Updated ${relativeTime(snapshot.location.recordedAt, now)}` : 'Waiting for location'}</span>
+              <button className="toolbar-button small" onClick={toggleTextView} aria-pressed={textView}><Icon name={textView ? 'pin' : 'eye'} size={16} />{textView ? 'Map' : 'Text only'}</button>
+            </div>
+            {textView ? <TextStatus snapshot={snapshot} now={now} /> : <SessionMap snapshot={snapshot} />}
+          </section>
+          {alerts.pushState === 'on' && <p className="notify-on"><Icon name="check" size={15} />Notifications on for this phone{snapshot.textAlertsEnabled ? ' · text alerts on' : ''}</p>}
+          {!error && health.level === 'stale' && <div className="quiet-warning" role="status"><Icon name="clock" size={15} />Location is over a minute old. Their phone may be locked, offline, or out of battery.</div>}
+          {error && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />Updates interrupted: {error}</div>}
+          <Fold title="Walk details" icon="clock">
+            <div className="detail-row"><span>Started</span><strong>{new Date(snapshot.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</strong></div>
+            <div className="detail-row"><span>Accuracy</span><strong>{snapshot.location ? accuracyLabel(snapshot.location.accuracy) : '—'}</strong></div>
+            <div className="detail-row"><span>Movement</span><strong>{movementSummary(snapshot.location, snapshot.trail)}</strong></div>
+            <div className="detail-row"><span>View refreshed</span><strong>{relativeTime(lastCheckedAt, now)}</strong></div>
+            <p className="fold-text">Positions arrive while the walker’s app is open. Campus Safety status comes from the prototype dispatch console. OpenStreetMap receives the map area your browser loads.</p>
+          </Fold>
+        </>}
+      </>}
+    </main>
+  </div>;
 }
 
 export default function App() {
+  if (/^\/dispatch\/?$/.test(window.location.pathname)) return <DispatchApp />;
   const match = window.location.pathname.match(/^\/watch\/([^/]+)\/?$/);
   if (match) return <GuardianApp sessionId={safeDecode(match[1])} />;
   return <StudentApp />;

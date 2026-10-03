@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { test, type TestContext } from 'node:test';
-import type { CreateSessionResponse, SessionSnapshot } from '../src/api-types.js';
+import type { CreateSessionResponse, DispatchIncident, DispatchIncidentList, PushSubscriptionInput, SessionSnapshot } from '../src/api-types.js';
 import { createApp } from './app.js';
+import type { GuardianAlert, Notifier, PushPayload, PushResult } from './notify.js';
 import { SessionStore } from './store.js';
 
 interface JsonResponse<T = unknown> {
@@ -15,12 +17,25 @@ interface JsonResponse<T = unknown> {
   body: T;
 }
 
-function setup(t: TestContext) {
+const DISPATCH_CODE = 'test-dispatch-code';
+
+function recordingNotifier(pushResult: PushResult = 'sent') {
+  const sms: GuardianAlert[] = [];
+  const pushes: { subscription: PushSubscriptionInput; payload: PushPayload }[] = [];
+  const notifier: Notifier = {
+    publicPushKey: 'test-public-key',
+    sms: (alert) => { sms.push(alert); },
+    push: async (subscription, payload) => { pushes.push({ subscription, payload }); return pushResult; },
+  };
+  return { sms, pushes, notifier };
+}
+
+function setup(t: TestContext, recorder = recordingNotifier()) {
   const dir = mkdtempSync(join(tmpdir(), 'ghostsignal-test-'));
   const dbPath = join(dir, 'sessions.sqlite');
   const clock = { now: Date.parse('2026-10-02T18:00:00.000Z') };
-  const store = new SessionStore(dbPath, () => clock.now);
-  const server = createApp(store).listen(0);
+  const store = new SessionStore(dbPath, () => clock.now, recorder.notifier);
+  const server = createApp(store, { dispatchCode: DISPATCH_CODE }).listen(0);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   t.after(async () => {
     await new Promise<void>((done) => server.close(() => done()));
@@ -191,4 +206,209 @@ test('invalid, stale, future, and out-of-order locations are rejected', async (t
   clock.now += 1000;
   assert.equal((await send(valid)).status, 409);
   assert.equal((await send({ ...valid, recordedAt: new Date(clock.now).toISOString() })).status, 200);
+});
+
+const PUSH_SUBSCRIPTION = {
+  endpoint: 'https://fcm.googleapis.com/fcm/send/test-device',
+  keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' },
+};
+
+test('a help press opens a Campus Safety incident the dispatcher can acknowledge, dispatch, and close', async (t) => {
+  const recorder = recordingNotifier();
+  const { base, clock } = setup(t, recorder);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  const owner = created.ownerToken;
+  const dispatch = (route: string, body?: unknown, token = DISPATCH_CODE) =>
+    json<DispatchIncident>(base, `/api/dispatch/incidents${route}`, { method: body === undefined && !route ? 'GET' : 'POST', token, body });
+
+  assert.equal((await json(base, '/api/dispatch/incidents')).status, 401);
+  assert.equal((await json(base, '/api/dispatch/incidents', { token: 'wrong-code' })).status, 401);
+  assert.deepEqual((await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents, []);
+
+  await json(base, `${path}/contacts`, { method: 'POST', token: owner, body: { walkerDescription: '  red   jacket, black backpack ', guardianPhone: '(217) 555-0123' } });
+  const location = { latitude: 40.1092, longitude: -88.2272, accuracy: 9, recordedAt: new Date(clock.now).toISOString() };
+  await json(base, `${path}/locations`, { method: 'POST', token: owner, body: location });
+  assert.equal((await json(base, `${path}/push-subscriptions`, { method: 'POST', token: created.guardianToken, body: PUSH_SUBSCRIPTION })).status, 201);
+
+  const helped = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: owner })).body;
+  assert.equal(helped.incident?.status, 'new');
+  assert.match(helped.incident!.reference, /^GS-[0-9A-F]{6}$/);
+  await json(base, `${path}/help`, { method: 'POST', token: owner });
+
+  const listed = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents;
+  assert.equal(listed.length, 1);
+  const incident = listed[0];
+  assert.equal(incident.walkerDescription, 'red jacket, black backpack');
+  assert.equal(incident.location?.latitude, location.latitude);
+  assert.equal(incident.guardianTexted, true);
+  assert.equal(incident.guardianPushDevices, 1);
+  assert.deepEqual(incident.events.map((event) => event.kind), ['opened']);
+  assert.equal(recorder.sms.length, 1);
+  assert.match(recorder.sms[0].body, /SILENT help signal/);
+  assert.match(recorder.sms[0].body, /do not call or text them/);
+  assert.doesNotMatch(recorder.sms[0].body, /Call or text them now/);
+  await new Promise((done) => setImmediate(done));
+  assert.equal(recorder.pushes.length, 1);
+  assert.equal(recorder.pushes[0].payload.title, 'Silent help signal');
+  assert.match(recorder.pushes[0].payload.body, /Don’t call or text/);
+  assert.equal(recorder.pushes[0].payload.sessionId, created.sessionId);
+
+  // The guardian view never exposes the guardian number or the walker's description.
+  const guardianView = JSON.stringify((await json(base, path, { token: created.guardianToken })).body);
+  assert.equal(guardianView.includes('555'), false);
+  assert.equal(guardianView.includes('backpack'), false);
+
+  // The guardian can pass context to Campus Safety without contacting the walker.
+  assert.equal((await json(base, `${path}/guardian-notes`, { method: 'POST', token: created.guardianToken, body: { text: ' ' } })).status, 400);
+  assert.equal((await json(base, `${path}/guardian-notes`, { method: 'POST', token: created.guardianToken, body: { text: 'Walking home from Grainger to ISR.' } })).status, 201);
+  const withNote = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.deepEqual(withNote.events.at(-1), { at: withNote.events.at(-1)!.at, kind: 'guardian_note', text: 'Walking home from Grainger to ISR.' });
+
+  const id = `/${incident.id}`;
+  assert.equal((await dispatch(`${id}/acknowledge`, undefined, 'wrong-code')).status, 401);
+  const acknowledged = await dispatch(`${id}/acknowledge`, {});
+  assert.equal(acknowledged.body.status, 'acknowledged');
+  assert.equal((await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body.incident?.status, 'acknowledged');
+  assert.equal((await dispatch(`${id}/respond`, { unit: '  ' })).status, 400);
+  const responding = await dispatch(`${id}/respond`, { unit: 'Patrol 2' });
+  assert.equal(responding.body.status, 'responding');
+  assert.equal(responding.body.unit, 'Patrol 2');
+  assert.equal((await json<SessionSnapshot>(base, path, { token: owner })).body.incident?.unit, 'Patrol 2');
+  assert.equal((await dispatch(`${id}/notes`, { text: 'Officer en route via Wright St.' })).body.events.at(-1)?.kind, 'note');
+
+  const cancelled = (await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: owner })).body;
+  assert.equal(cancelled.incident?.status, 'responding');
+  const afterCancel = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.ok(afterCancel.walkerCancelledAt);
+  const resent = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: owner })).body;
+  assert.equal(resent.incident?.id, incident.id);
+  const afterResend = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.equal(afterResend.walkerCancelledAt, null);
+  assert.equal(afterResend.events.at(-1)?.kind, 'walker_resent');
+
+  assert.equal((await dispatch(`${id}/resolve`, { outcome: 'nope' })).status, 400);
+  const resolved = await dispatch(`${id}/resolve`, { outcome: 'escorted_to_safety', note: 'Walked student to ISR.' });
+  assert.equal(resolved.body.status, 'resolved');
+  assert.equal(resolved.body.location, null);
+  assert.equal(resolved.body.walkerDescription, null);
+  assert.deepEqual(resolved.body.trail, []);
+  assert.match(resolved.body.events.at(-1)!.text, /escorted them to safety\. Walked student to ISR\./);
+  assert.equal((await dispatch(`${id}/respond`, { unit: 'Patrol 1' })).status, 409);
+  assert.equal((await dispatch('/not-an-id/acknowledge', {})).status, 404);
+
+  // A later help press opens a fresh incident.
+  await json(base, `${path}/help/retract`, { method: 'POST', token: owner });
+  const second = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: owner })).body;
+  assert.notEqual(second.incident?.id, incident.id);
+  assert.equal(second.incident?.status, 'new');
+});
+
+test('ending or expiring a walk keeps the last known location for an open incident until it is closed', async (t) => {
+  const { base, clock, store } = setup(t);
+  const start = async () => {
+    const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'demo' } })).body;
+    const path = `/api/sessions/${created.sessionId}`;
+    await json(base, `${path}/contacts`, { method: 'POST', token: created.ownerToken, body: { walkerDescription: 'grey hoodie' } });
+    await json(base, `${path}/locations`, { method: 'POST', token: created.ownerToken, body: { latitude: 40.11, longitude: -88.23, accuracy: 10, recordedAt: new Date(clock.now).toISOString() } });
+    await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+    return { ...created, path };
+  };
+  const ended = await start();
+  const endedSnapshot = (await json<SessionSnapshot>(base, `${ended.path}/end`, { method: 'POST', token: ended.ownerToken })).body;
+  assert.equal(endedSnapshot.location, null);
+  assert.equal(endedSnapshot.descriptionProvided, false);
+  let incidents = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents;
+  assert.equal(incidents[0].sessionState, 'ended');
+  assert.equal(incidents[0].location?.latitude, 40.11);
+  assert.equal(incidents[0].walkerDescription, 'grey hoodie');
+  assert.equal(incidents[0].events.at(-1)?.kind, 'walker_ended');
+
+  clock.now += 1000;
+  const expiring = await start();
+  clock.now += 2 * 60 * 60 * 1000;
+  assert.equal(store.expireDue(), 1);
+  incidents = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents;
+  const expired = incidents.find((incident) => incident.sessionState === 'expired')!;
+  assert.equal(expired.location?.longitude, -88.23);
+  assert.equal(expired.events.at(-1)?.kind, 'session_expired');
+  assert.equal((await json(base, `${expiring.path}/push-subscriptions`, { method: 'POST', token: expiring.guardianToken, body: PUSH_SUBSCRIPTION })).status, 409);
+
+  const closed = (await json<DispatchIncident>(base, `/api/dispatch/incidents/${expired.id}/resolve`, { method: 'POST', token: DISPATCH_CODE, body: { outcome: 'no_threat_on_scene' } })).body;
+  assert.equal(closed.location, null);
+  assert.equal(closed.walkerDescription, null);
+  assert.equal((await json(base, `${expiring.path}/guardian-notes`, { method: 'POST', token: expiring.guardianToken, body: { text: 'late note' } })).status, 409);
+});
+
+test('contacts and push subscriptions are validated, capped, and cleared when a walk ends', async (t) => {
+  const recorder = recordingNotifier();
+  const { base } = setup(t, recorder);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'demo' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  const contacts = (body: unknown, token = created.ownerToken) => json<SessionSnapshot>(base, `${path}/contacts`, { method: 'POST', token, body });
+  const subscribe = (body: unknown) => json<{ devices: number }>(base, `${path}/push-subscriptions`, { method: 'POST', token: created.guardianToken, body });
+
+  assert.equal((await contacts({ guardianPhone: '+12175550123' }, created.guardianToken)).status, 403);
+  assert.equal((await contacts({ guardianPhone: '12345' })).status, 400);
+  assert.equal((await contacts({ walkerDescription: 'x'.repeat(121) })).status, 400);
+  assert.equal((await contacts([])).status, 400);
+  const saved = await contacts({ guardianPhone: '+12175550123', walkerDescription: 'blue coat' });
+  assert.equal(saved.body.textAlertsEnabled, true);
+  assert.equal(saved.body.descriptionProvided, true);
+  assert.equal((await contacts({ walkerDescription: null })).body.descriptionProvided, false);
+
+  assert.equal((await subscribe({ ...PUSH_SUBSCRIPTION, endpoint: 'https://attacker.example/push' })).status, 400);
+  assert.equal((await subscribe({ ...PUSH_SUBSCRIPTION, endpoint: 'http://fcm.googleapis.com/fcm/send/x' })).status, 400);
+  assert.equal((await subscribe({ endpoint: PUSH_SUBSCRIPTION.endpoint, keys: { p256dh: 'short', auth: 'x' } })).status, 400);
+  assert.equal((await subscribe(PUSH_SUBSCRIPTION)).body.devices, 1);
+  assert.equal((await subscribe(PUSH_SUBSCRIPTION)).body.devices, 1);
+  for (let index = 2; index <= 5; index++) {
+    assert.equal((await subscribe({ ...PUSH_SUBSCRIPTION, endpoint: `${PUSH_SUBSCRIPTION.endpoint}-${index}` })).body.devices, index);
+  }
+  assert.equal((await subscribe({ ...PUSH_SUBSCRIPTION, endpoint: `${PUSH_SUBSCRIPTION.endpoint}-6` })).status, 429);
+
+  for (let index = 0; index < 8; index++) {
+    await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+    await json(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken });
+  }
+  assert.equal(recorder.sms.length, 10);
+  assert.ok(recorder.sms.every((alert) => alert.body.startsWith('[DEMO - simulated walk] ')));
+  await new Promise((done) => setImmediate(done));
+  assert.ok(recorder.pushes.every((push) => push.payload.title.startsWith('[Demo] ')));
+
+  const ended = (await json<SessionSnapshot>(base, `${path}/end`, { method: 'POST', token: created.ownerToken })).body;
+  assert.equal(ended.textAlertsEnabled, false);
+  assert.equal((await contacts({ guardianPhone: '+12175550123' })).status, 409);
+});
+
+test('push subscriptions the push service reports as gone are removed', async (t) => {
+  const recorder = recordingNotifier('expired');
+  const { base } = setup(t, recorder);
+  const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
+  const path = `/api/sessions/${created.sessionId}`;
+  await json(base, `${path}/push-subscriptions`, { method: 'POST', token: created.guardianToken, body: PUSH_SUBSCRIPTION });
+  await json(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+  await new Promise((done) => setImmediate(done));
+  const incident = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
+  assert.equal(incident.guardianPushDevices, 0);
+});
+
+test('an existing database without the new columns is migrated', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ghostsignal-migrate-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const dbPath = join(dir, 'sessions.sqlite');
+  const legacy = new DatabaseSync(dbPath);
+  legacy.exec(`CREATE TABLE sessions (
+    id TEXT PRIMARY KEY, mode TEXT NOT NULL, status TEXT NOT NULL, started_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, help_requested_at INTEGER,
+    ended_reason TEXT, location_json TEXT, trail_json TEXT NOT NULL, owner_hash TEXT NOT NULL, guardian_hash TEXT NOT NULL)`);
+  legacy.close();
+  const store = new SessionStore(dbPath);
+  try {
+    const created = store.create('demo');
+    assert.equal(store.setContacts(created.sessionId, created.ownerToken, { walkerDescription: 'green scarf' }).descriptionProvided, true);
+    assert.equal(store.requestHelp(created.sessionId, created.ownerToken).incident?.status, 'new');
+  } finally {
+    store.close();
+  }
 });

@@ -1,4 +1,4 @@
-import type { CreateSessionResponse, SessionSnapshot } from './api-types';
+import type { ContactsInput, CreateSessionResponse, DispatchIncident, DispatchIncidentList, IncidentOutcome, PushSubscriptionInput, SessionSnapshot } from './api-types';
 
 export type OwnerCredentials = {
   sessionId: string;
@@ -54,6 +54,26 @@ export function postLocation(
   }, token);
 }
 
+export function setContacts(sessionId: string, token: string, contacts: ContactsInput): Promise<SessionSnapshot> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/contacts`, {
+    method: 'POST', body: JSON.stringify(contacts),
+  }, token);
+}
+
+export function getPushPublicKey(): Promise<{ publicKey: string }> {
+  return request('/api/push/public-key');
+}
+
+export function addPushSubscription(sessionId: string, token: string, subscription: PushSubscriptionInput): Promise<{ devices: number }> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/push-subscriptions`, {
+    method: 'POST', body: JSON.stringify(subscription),
+  }, token);
+}
+
+export function sendGuardianNote(sessionId: string, token: string, text: string): Promise<SessionSnapshot> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/guardian-notes`, { method: 'POST', body: JSON.stringify({ text }) }, token);
+}
+
 export function requestHelp(sessionId: string, token: string): Promise<SessionSnapshot> {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/help`, { method: 'POST' }, token);
 }
@@ -65,3 +85,19 @@ export function retractHelp(sessionId: string, token: string): Promise<SessionSn
 export function endSession(sessionId: string, token: string): Promise<SessionSnapshot> {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/end`, { method: 'POST' }, token);
 }
+
+// Campus Safety console. The access code is sent as a bearer credential.
+export function listIncidents(code: string): Promise<DispatchIncidentList> {
+  return request('/api/dispatch/incidents', {}, code);
+}
+
+function incidentAction(code: string, incidentId: string, action: string, body?: unknown): Promise<DispatchIncident> {
+  return request(`/api/dispatch/incidents/${encodeURIComponent(incidentId)}/${action}`, {
+    method: 'POST', body: body === undefined ? undefined : JSON.stringify(body),
+  }, code);
+}
+
+export const acknowledgeIncident = (code: string, id: string) => incidentAction(code, id, 'acknowledge');
+export const respondToIncident = (code: string, id: string, unit: string) => incidentAction(code, id, 'respond', { unit });
+export const resolveIncident = (code: string, id: string, outcome: IncidentOutcome, note?: string) => incidentAction(code, id, 'resolve', { outcome, note: note || null });
+export const addIncidentNote = (code: string, id: string, text: string) => incidentAction(code, id, 'notes', { text });

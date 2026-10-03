@@ -1,4 +1,5 @@
 import express, { type ErrorRequestHandler, type Request, type RequestHandler } from 'express';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionMode } from '../src/api-types.js';
@@ -8,6 +9,13 @@ function bearerToken(request: Request): string {
   const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.get('authorization') ?? '');
   if (!match) throw new ApiError(401, 'Bearer token required.');
   return match[1];
+}
+
+function dispatchCodeMatches(request: Request, code: string): boolean {
+  const match = /^Bearer (.{1,200})$/.exec(request.get('authorization') ?? '');
+  if (!match) return false;
+  const given = createHash('sha256').update(match[1]).digest();
+  return timingSafeEqual(given, createHash('sha256').update(code).digest());
 }
 
 function handle(action: (request: Request, response: express.Response) => void): RequestHandler {
@@ -20,7 +28,7 @@ function handle(action: (request: Request, response: express.Response) => void):
   };
 }
 
-export function createApp(store: SessionStore, options: { staticDir?: string } = {}): express.Express {
+export function createApp(store: SessionStore, options: { staticDir?: string; dispatchCode?: string } = {}): express.Express {
   const app = express();
   app.disable('x-powered-by');
   app.use((_, response, next) => {
@@ -63,6 +71,23 @@ export function createApp(store: SessionStore, options: { staticDir?: string } =
     response.json(store.updateLocation(request.params.id as string, bearerToken(request), request.body as unknown));
   }));
 
+  app.post('/api/sessions/:id/contacts', handle((request, response) => {
+    response.json(store.setContacts(request.params.id as string, bearerToken(request), request.body as unknown));
+  }));
+
+  app.get('/api/push/public-key', handle((_request, response) => {
+    if (!store.publicPushKey) throw new ApiError(503, 'Push notifications are not configured.');
+    response.json({ publicKey: store.publicPushKey });
+  }));
+
+  app.post('/api/sessions/:id/push-subscriptions', handle((request, response) => {
+    response.status(201).json(store.addPushSubscription(request.params.id as string, bearerToken(request), request.body as unknown));
+  }));
+
+  app.post('/api/sessions/:id/guardian-notes', handle((request, response) => {
+    response.status(201).json(store.addGuardianNote(request.params.id as string, bearerToken(request), request.body as unknown));
+  }));
+
   app.post('/api/sessions/:id/help', handle((request, response) => {
     response.json(store.requestHelp(request.params.id as string, bearerToken(request)));
   }));
@@ -73,6 +98,43 @@ export function createApp(store: SessionStore, options: { staticDir?: string } =
 
   app.post('/api/sessions/:id/end', handle((request, response) => {
     response.json(store.end(request.params.id as string, bearerToken(request)));
+  }));
+
+  // Campus Safety console. Every route needs the shared dispatcher access code.
+  const failedDispatchLogins = new Map<string, number[]>();
+  app.use('/api/dispatch', (request, _response, next) => {
+    const code = options.dispatchCode;
+    if (!code) return next(new ApiError(503, 'The Campus Safety console is not enabled.'));
+    const ip = request.ip ?? 'unknown';
+    const now = Date.now();
+    const failures = (failedDispatchLogins.get(ip) ?? []).filter((time) => now - time < 10 * 60 * 1000);
+    if (failures.length >= 10) return next(new ApiError(429, 'Too many incorrect access codes. Try again later.'));
+    if (!dispatchCodeMatches(request, code)) {
+      failures.push(now);
+      failedDispatchLogins.set(ip, failures);
+      return next(new ApiError(401, 'Incorrect access code.'));
+    }
+    next();
+  });
+
+  app.get('/api/dispatch/incidents', handle((_request, response) => {
+    response.json(store.listIncidents());
+  }));
+
+  app.post('/api/dispatch/incidents/:id/acknowledge', handle((request, response) => {
+    response.json(store.acknowledgeIncident(request.params.id as string));
+  }));
+
+  app.post('/api/dispatch/incidents/:id/respond', handle((request, response) => {
+    response.json(store.respondToIncident(request.params.id as string, request.body as unknown));
+  }));
+
+  app.post('/api/dispatch/incidents/:id/resolve', handle((request, response) => {
+    response.json(store.resolveIncident(request.params.id as string, request.body as unknown));
+  }));
+
+  app.post('/api/dispatch/incidents/:id/notes', handle((request, response) => {
+    response.json(store.addIncidentNote(request.params.id as string, request.body as unknown));
   }));
 
   app.use('/api', (_request, response) => {

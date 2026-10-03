@@ -18,7 +18,8 @@
     "leaflet": "^1.9.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-leaflet": "^5.0.0"
+    "react-leaflet": "^5.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
@@ -26,6 +27,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.0",
     "tsx": "^4.20.0",

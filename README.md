@@ -1,6 +1,6 @@
 # GhostSignal
 
-A browser-based hackathon prototype for temporary, moving safety sessions. A student starts a walk, shares a private guardian link, keeps moving, and can silently mark **I need help**. The guardian dashboard shows the latest location, movement trail, accuracy, and update freshness.
+A mobile-first hackathon prototype for getting help **without making a scene**. Campus emergency phones mean running to a pole and making a call in plain view, which can make a tense situation worse. With GhostSignal, a student who notices someone following them presses and holds an ordinary-looking **Hold to check in** button. Their phone barely changes on screen, but Campus Safety receives a silent signal with their live location. Nobody calls or texts the student. Responders find them using the live location and an optional description of what they're wearing. Short vibrations tell the student when a dispatcher has seen the signal and when a responder is on the way.
 
 > Emergency buttons protect a location. Our system protects the person as they move.
 
@@ -13,7 +13,13 @@ npm install
 npm run dev
 ```
 
-Open [the student page](http://localhost:5173). Choose **Try a simulated walk**, copy the guardian link, and open it in a second browser window. Both views communicate with the same backend, so help status and position changes are shared across clients.
+Open three windows:
+
+1. [The student page](http://localhost:5173): choose **Try a simulated walk**.
+2. The guardian link: copy it from the student page, then choose **Turn on notifications**.
+3. [The Campus Safety console](http://localhost:5173/dispatch): enter the access code that the server prints when it starts (`Campus Safety console: /dispatch  access code: …`).
+
+All three use the same backend.
 
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:3001`; Vite proxies `/api` requests during development.
@@ -51,6 +57,14 @@ The server reads these optional environment variables from the process:
 | --- | --- | --- |
 | `PORT` | `3001` | API and built frontend port |
 | `SESSION_DB_PATH` | `data/sessions.sqlite` | Persistent SQLite file path |
+| `DISPATCH_ACCESS_CODE` | random per start | Shared code for the Campus Safety console; printed at startup when unset |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | generated | Web Push keys. When unset, a pair is generated once and saved as `vapid-keys.json` beside the database |
+| `VAPID_SUBJECT` | `mailto:ghostsignal@example.invalid` | Contact URL sent to push services; set a real `mailto:` before hosting |
+| `TWILIO_ACCOUNT_SID` | unset | Twilio account for guardian text alerts |
+| `TWILIO_AUTH_TOKEN` | unset | Twilio auth token; keep it out of Git |
+| `TWILIO_FROM_NUMBER` | unset | Twilio sending number, such as `+12175550100` |
+
+Text alerts are sent through Twilio only when all three `TWILIO_*` variables are set. Otherwise the server prints each alert to its console as `[simulated SMS to •••0123]`, which is suitable for a labeled demo.
 
 The Vite development proxy targets port 3001. Change the proxy too if you change the API port during development. Environment files are not automatically loaded by the backend.
 
@@ -61,22 +75,40 @@ The Vite development proxy targets port 3001. Change the proxy too if you change
 - A shared backend and SQLite persistence; browser storage is only used to resume the student's credentials within that tab.
 - Separate random owner and guardian credentials. The guardian credential allows viewing only and travels in the URL fragment; API requests use an Authorization header.
 - A fixed two-hour session lifetime. Ended and expired sessions remove coordinates and trails from session state and reject further location writes.
+- **Discreet trigger:** a neutral **Hold to check in** control that needs a press of about two seconds, so it isn't triggered by accident in a pocket. It opens an incident with a reference such as `GS-4F2A9C`. After the signal, the walker's screen keeps its normal colors and shows one low-key line (for example, "Checked in · seen"). Full details stay folded until the walker taps them. Status changes arrive as vibration patterns: one buzz when a dispatcher has seen it, two buzzes when a responder is on the way.
+- **Campus Safety console (`/dispatch`):** a dispatcher console protected by a shared access code. It shows:
+  - A queue of open signals, ordered so unacknowledged signals come first, each with a running timer, a nearby campus landmark, location freshness, and flags such as walker cancelled, walk ended, or demo.
+  - A live map with every open signal. New signals pulse; the selected signal shows its trail and accuracy radius.
+  - An incident panel with the live location, an approximate description relative to a campus landmark, copyable coordinates, accuracy, movement over the last minute, the walker's optional description of what they're wearing, notes from the guardian, and whether the guardian was notified. A banner reminds the dispatcher not to call or text the walker.
+  - A workflow: **Acknowledge** → **Dispatch unit** → **Close with outcome** (each outcome is something a responder can confirm in person: escorted to safety, no threat on scene, accidental and confirmed in person, walker reached safety, unable to locate, escalated to police), plus notes and a full timeline.
+  - A repeating alarm sound, a tab-title count, and a browser notification until each new signal is acknowledged.
+- **Never contact the walker:** the guardian page, push notifications, and texts all tell the guardian not to call or text the walker. The guardian sees the full Campus Safety tracker and can **Share what you know** (destination, clothing, companions); this goes to the dispatcher, not the walker. If a cancellation or an ended walk may have been coerced, dispatchers are told to verify in person.
+- **Location after a walk ends:** if a walk ends or expires while an incident is open, Campus Safety keeps the last known location and description. Closing the incident removes Campus Safety's access to both.
+- **Guardian push notifications:** **Turn on notifications** on the guardian page registers a service worker for Web Push. The guardian is notified when help is requested or cancelled and when Campus Safety acknowledges, dispatches, or closes, even with the page closed. Tapping a notification reopens the guardian link.
+- **Guardian text alerts:** optional texts for the same events through Twilio. Without Twilio keys, these become labeled console messages. Each session can send at most ten texts.
+- **Help responders find you:** a folded section where the student can describe what they're wearing and add a guardian phone number for texts. The app never asks for the student's phone number, because calling them could be dangerous. Everything is deleted when the walk ends.
+- **Mobile app layout:** the walker and guardian screens are a single phone-width column with a sticky app bar, a map, folding sections, 48 px or larger touch targets, safe-area padding, and the native share sheet for the guardian link. On desktop they appear in a phone-sized frame. The dispatch console stays a desktop control-room layout.
+- **Text-only guardian view:** an accessible view without map tiles for screen-reader, low-vision, and low-bandwidth use.
 - Location validation, monotonic timestamps, bounded update frequency, no-store API responses, and a session-creation rate limit.
 
 ## Limits that matter
 
-This is a hackathon prototype. The help button changes the open guardian dashboard; it does **not** send SMS or push notifications, contact emergency services, or confirm a guardian is watching. There is no police, Illini-Alert, or threat-detection integration.
+This is a hackathon prototype. **The Campus Safety console is not connected to UIUC Police, METCOM, or 911, and nobody monitors it.** The pages say this. A real deployment would need agreement with campus police on staffing, response policy, dispatcher accounts, and audit logging.
+
+The console uses one shared access code instead of individual dispatcher accounts, and it does not record which dispatcher took each action. Phone numbers are stored in SQLite without encryption until the walk ends or the incident closes. Landmark descriptions use a short list of approximate campus coordinates. Web Push needs HTTPS (or localhost). On iPhone, push works only after the guardian adds the site to the Home Screen (iOS 16.4 or later). Stale-location warnings are shown in open pages but not pushed.
 
 Anyone who receives a guardian link can view that session until sharing ends. Share links privately. There is no user account, individual guardian verification, or link rotation yet. Active coordinates are stored locally in SQLite without application-level encryption. End/expiry clears application-visible location state; it is not a guarantee of forensic erasure from disk or backups. OpenStreetMap supplies map tiles and attribution; map rendering needs connectivity to its tile service. Tile requests reveal the viewed map area and the site's origin to that provider, but do not send guardian tokens. The tile integration follows [OpenStreetMap's usage policy](https://operations.osmfoundation.org/policies/tiles/).
 
-The system reports received data, not independently verified movement. GPS accuracy varies. Network loss, permission changes, and suspended pages can delay updates. Use one student tab per session: duplicated owner tabs may compete to publish location updates. Destination and ETA remain optional follow-up work.
+The system reports received data, not independently verified movement. GPS accuracy varies. Network loss, permission changes, and suspended pages can delay updates. Use one student tab per session: duplicated owner tabs may compete to publish location updates.
 
 ## Project layout
 
 ```text
-src/                  Student and guardian React views, map, shared API types
-server/               Express routes, SQLite session store, backend tests
-public/               App favicon
+src/App.tsx           Student and guardian views
+src/Dispatch.tsx      Campus Safety console
+src/landmarks.ts      Approximate campus landmarks for location descriptions
+server/               Express routes, SQLite store (sessions, incidents, push subscriptions), notifier, tests
+public/               Favicon, service worker for guardian push, web app manifest
 docs/HACKATHON.md     Demo script, acceptance checks, and four-person ownership
 data/                 Runtime database (ignored by Git)
 ```

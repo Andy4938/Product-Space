@@ -1,0 +1,10 @@
+{
+  "name": "GhostSignal",
+  "short_name": "GhostSignal",
+  "description": "A help signal that moves with you.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f5ef",
+  "theme_color": "#182b35",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

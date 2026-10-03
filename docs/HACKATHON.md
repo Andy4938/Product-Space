@@ -6,17 +6,23 @@
 
 Build for the uncertain moment when someone feels unsafe while walking: start a temporary session, share it with a trusted person, keep moving, and silently request help if needed. The guardian needs the current location and its freshness, not just the starting point.
 
-This prototype updates an open guardian dashboard. It does not dispatch responders, send SMS or push notifications, contact 911, assess threats, or connect to Illini-Alert.
+Campus emergency phones only help if you can reach one. GhostSignal moves the help button to the student's phone. A help signal opens an incident on a Campus Safety console with live location, and notifies an optional guardian by push notification and text. The console is a prototype and is not connected to UIUC Police, 911, or Illini-Alert.
 
 ## Two-minute demonstration
 
-1. Open the student page. Start the clearly labeled simulated walk for a predictable demonstration without collecting anyone's actual location.
-2. Copy the guardian link and open it in a second browser window, preferably on another display. Explain that the link grants access to the session and should only be shared with a trusted person.
-3. Show the changing current marker, movement trail, location timestamp, and accuracy radius. The simulated walk should be labeled in both views.
-4. Use the map's **+** and **−** buttons to zoom. Show that incoming positions preserve the selected zoom.
-5. Press **I need help** on the student page. Show the guardian status changing while the student keeps moving. Explain that the status appears in the guardian's open dashboard.
-6. Choose **Retract help request** to return to an active walk. The guardian's help status clears while the same private link, route, and location sharing continue. The student can request help again.
-7. End the session with **I'm safe**. Show that location sharing stops and the guardian view removes the coordinates and trail.
+Set up three windows before you start: the student page (phone-sized), the guardian link, and the Campus Safety console at `/dispatch`, preferably on the big screen. Set `DISPATCH_ACCESS_CODE` beforehand so the code doesn't change.
+
+1. On the student page (phone-sized window), start the clearly labeled simulated walk. Open **Help responders find you** and enter "red jacket, black backpack."
+2. Open the guardian link and choose **Turn on notifications**. Explain that this replaces "hoping someone is watching a dashboard."
+3. Show the empty console: "Monitoring. No open signals."
+4. On the student page, **press and hold "Hold to check in."** Point out that the student's screen barely changes; someone looking over their shoulder sees "Checked in · delivered." Meanwhile, the console sounds an alarm and shows a pulsing incident with a running timer, a "near Illini Union" description, live location, and "Look for: red jacket, black backpack." The guardian's phone shows "Don't call or text them."
+5. On the guardian page, use **Share what you know** to send "Walking from Grainger to ISR." It appears on the dispatcher's screen.
+6. In the console, choose **Acknowledge**, then dispatch "Patrol 2." The student feels a vibration and their status line changes to "someone is on the way," without a call or text. Point out that a blue-light phone can't do this quietly.
+7. Show the marker and trail moving on the console while the student keeps walking.
+8. Close the incident with "Responder reached walker and escorted them to safety." Show that the console loses the location and description once the incident is closed.
+9. Show the safeguards: a cancelled signal stays open as "possibly coerced, verify in person," and ending the walk keeps the last known location for Campus Safety.
+
+Without Twilio keys, guardian texts appear as labeled `[simulated SMS]` lines in the server console. Say that they are simulated.
 
 For a real walking demonstration, use a supported phone browser with location permission and a trusted HTTPS origin. Keep the student page open and screen unlocked. A phone visiting a laptop's plain HTTP LAN address generally cannot use browser geolocation; desktop localhost is treated differently.
 
@@ -49,7 +55,7 @@ Integrate the complete flow by hour 8. Freeze features by hour 20. Add destinati
 ## Decisions still needed before a hosted pilot
 
 - Choose a host and a stable HTTPS origin that both student and guardian can access.
-- Decide whether a guardian is expected to keep the dashboard open or whether a separate notification feature is needed.
+- Choose an SMS provider account and sending number, and decide whether guardians must opt in before receiving texts.
 - Validate actual phone behavior when the page is hidden or the screen locks; a browser prototype cannot promise continuous background tracking.
 - Define account identity, guardian verification, location retention, abuse controls, and operational ownership before public use.
 
