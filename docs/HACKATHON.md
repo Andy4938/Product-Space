@@ -13,8 +13,10 @@ This prototype updates an open guardian dashboard. It does not dispatch responde
 1. Open the student page. Start the clearly labeled simulated walk for a predictable demonstration without collecting anyone's actual location.
 2. Copy the guardian link and open it in a second browser window, preferably on another display. Explain that the link grants access to the session and should only be shared with a trusted person.
 3. Show the changing current marker, movement trail, location timestamp, and accuracy radius. The simulated walk should be labeled in both views.
-4. Press **I need help** on the student page. Show the guardian status changing while the student keeps moving. Explain that the status appears in the guardian's open dashboard.
-5. End the session with **I'm safe**. Show that location sharing stops and the guardian view removes the coordinates and trail.
+4. Use the map's **+** and **−** buttons to zoom. Show that incoming positions preserve the selected zoom.
+5. Press **I need help** on the student page. Show the guardian status changing while the student keeps moving. Explain that the status appears in the guardian's open dashboard.
+6. Choose **Retract help request** to return to an active walk. The guardian's help status clears while the same private link, route, and location sharing continue. The student can request help again.
+7. End the session with **I'm safe**. Show that location sharing stops and the guardian view removes the coordinates and trail.
 
 For a real walking demonstration, use a supported phone browser with location permission and a trusted HTTPS origin. Keep the student page open and screen unlocked. A phone visiting a laptop's plain HTTP LAN address generally cannot use browser geolocation; desktop localhost is treated differently.
 

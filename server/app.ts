@@ -67,6 +67,10 @@ export function createApp(store: SessionStore, options: { staticDir?: string } =
     response.json(store.requestHelp(request.params.id as string, bearerToken(request)));
   }));
 
+  app.post('/api/sessions/:id/help/retract', handle((request, response) => {
+    response.json(store.retractHelp(request.params.id as string, bearerToken(request)));
+  }));
+
   app.post('/api/sessions/:id/end', handle((request, response) => {
     response.json(store.end(request.params.id as string, bearerToken(request)));
   }));

@@ -37,3 +37,11 @@ Using the actual local frontend and backend, with simulated coordinates only:
 ## Still requires a real-device test
 
 Actual phone GPS and permission behavior were not exercised. There is no verified background tracking. Cross-device real GPS needs a selected HTTPS deployment and testing on the team's phones. Public hosting, notification delivery, and emergency-service integration are outside this local MVP.
+
+## Zoom and help-retraction follow-up
+
+- Production build, TypeScript checks, and all three expanded API test groups passed.
+- Browser verification exercised zoom in and zoom out in both views. The student retained zoom level 17 and the guardian retained level 15 through incoming movement updates and help retraction.
+- Help activation, retraction, continued movement, and a second help request were verified with a student tab and its guardian tab. The private link stayed the same and the route remained visible.
+- API tests verify owner-only retraction, retry behavior, persisted active state, preserved location/trail/expiry, continued location updates, repeat help requests, and rejection after end or expiry.
+- Logical update timestamps advance for every state change, including changes occurring in the same millisecond, so older polling responses cannot restore a retracted alert.

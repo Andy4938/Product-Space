@@ -75,28 +75,67 @@ test('guardian can read live updates but cannot mutate; end redacts coordinates 
   const location = { latitude: 40.1106, longitude: -88.2073, accuracy: 12, recordedAt: new Date(clock.now).toISOString() };
   assert.equal((await json(base, `${path}/locations`, { method: 'POST', token: guardianToken, body: location })).status, 403);
   assert.equal((await json(base, `${path}/help`, { method: 'POST', token: guardianToken })).status, 403);
+  assert.equal((await json(base, `${path}/help/retract`, { method: 'POST', token: guardianToken })).status, 403);
   assert.equal((await json(base, `${path}/end`, { method: 'POST', token: guardianToken })).status, 403);
 
   const updated = await json<SessionSnapshot>(base, `${path}/locations`, { method: 'POST', token: ownerToken, body: location });
   assert.equal(updated.status, 200);
   assert.equal(updated.body.location?.latitude, location.latitude);
   assert.equal(updated.body.trail.length, 1);
+  assert.ok(Date.parse(updated.body.updatedAt) > Date.parse(created.body.session.updatedAt));
   assert.equal((await json<SessionSnapshot>(base, path, { token: guardianToken })).body.location?.longitude, location.longitude);
 
   const helped = await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: ownerToken });
   assert.equal(helped.body.status, 'help_requested');
+  assert.ok(Date.parse(helped.body.updatedAt) > Date.parse(updated.body.updatedAt));
+  assert.equal(helped.body.helpRequestedAt, new Date(clock.now).toISOString());
   const helpedAgain = await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: ownerToken });
   assert.equal(helpedAgain.body.helpRequestedAt, helped.body.helpRequestedAt);
+  assert.equal(helpedAgain.body.updatedAt, helped.body.updatedAt);
+
+  const retracted = await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: ownerToken });
+  assert.equal(retracted.body.status, 'active');
+  assert.equal(retracted.body.helpRequestedAt, null);
+  assert.deepEqual(retracted.body.location, helped.body.location);
+  assert.deepEqual(retracted.body.trail, helped.body.trail);
+  assert.equal(retracted.body.expiresAt, helped.body.expiresAt);
+  assert.ok(Date.parse(retracted.body.updatedAt) > Date.parse(helped.body.updatedAt));
+  assert.deepEqual((await json<SessionSnapshot>(base, path, { token: guardianToken })).body, retracted.body);
+  const retractedAgain = await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: ownerToken });
+  assert.deepEqual(retractedAgain.body, retracted.body);
+
+  const persistedRetract = new SessionStore(dbPath, () => clock.now);
+  try {
+    assert.equal(persistedRetract.read(sessionId, guardianToken).status, 'active');
+    assert.equal(persistedRetract.read(sessionId, ownerToken).helpRequestedAt, null);
+  } finally {
+    persistedRetract.close();
+  }
+
+  clock.now += 1000;
+  const nextLocation = { ...location, latitude: 40.1107, recordedAt: new Date(clock.now).toISOString() };
+  const continued = await json<SessionSnapshot>(base, `${path}/locations`, { method: 'POST', token: ownerToken, body: nextLocation });
+  assert.equal(continued.status, 200);
+  assert.equal(continued.body.status, 'active');
+  assert.equal(continued.body.trail.length, 2);
+  assert.ok(Date.parse(continued.body.updatedAt) > Date.parse(retracted.body.updatedAt));
+
+  const escalatedAgain = await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: ownerToken });
+  assert.equal(escalatedAgain.body.status, 'help_requested');
+  assert.equal(escalatedAgain.body.helpRequestedAt, new Date(clock.now).toISOString());
+  assert.ok(Date.parse(escalatedAgain.body.updatedAt) > Date.parse(continued.body.updatedAt));
 
   const ended = await json<SessionSnapshot>(base, `${path}/end`, { method: 'POST', token: ownerToken });
   assert.equal(ended.body.status, 'ended');
   assert.equal(ended.body.endedReason, 'safe');
   assert.equal(ended.body.location, null);
   assert.deepEqual(ended.body.trail, []);
+  assert.ok(Date.parse(ended.body.updatedAt) > Date.parse(escalatedAgain.body.updatedAt));
   assert.deepEqual((await json<SessionSnapshot>(base, `${path}/end`, { method: 'POST', token: ownerToken })).body, ended.body);
   assert.equal((await json<SessionSnapshot>(base, path, { token: guardianToken })).body.location, null);
   assert.equal((await json(base, `${path}/locations`, { method: 'POST', token: ownerToken, body: location })).status, 409);
   assert.equal((await json(base, `${path}/help`, { method: 'POST', token: ownerToken })).status, 409);
+  assert.equal((await json(base, `${path}/help/retract`, { method: 'POST', token: ownerToken })).status, 409);
 
   const reopened = new SessionStore(dbPath, () => clock.now);
   try {
@@ -113,17 +152,22 @@ test('a fixed two-hour expiry redacts location even when an owner has recently u
     method: 'POST', body: { mode: 'demo' },
   })).body;
   const path = `/api/sessions/${created.sessionId}`;
-  clock.now += 2 * 60 * 60 * 1000 - 30_000;
+  clock.now += 2 * 60 * 60 * 1000 - 1;
   const location = { latitude: 40.11, longitude: -88.2, accuracy: 15, recordedAt: new Date(clock.now).toISOString() };
   assert.equal((await json(base, `${path}/locations`, { method: 'POST', token: created.ownerToken, body: location })).status, 200);
-  clock.now += 30_001;
+  const helped = await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: created.ownerToken });
+  const retracted = await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken });
+  assert.ok(Date.parse(retracted.body.updatedAt) > Date.parse(helped.body.updatedAt));
+  clock.now += 2;
   assert.equal(store.expireDue(), 1);
   const expired = await json<SessionSnapshot>(base, path, { token: created.guardianToken });
   assert.equal(expired.body.status, 'ended');
   assert.equal(expired.body.endedReason, 'expired');
   assert.equal(expired.body.location, null);
   assert.deepEqual(expired.body.trail, []);
+  assert.ok(Date.parse(expired.body.updatedAt) > Date.parse(retracted.body.updatedAt));
   assert.equal((await json(base, `${path}/locations`, { method: 'POST', token: created.ownerToken, body: location })).status, 409);
+  assert.equal((await json(base, `${path}/help/retract`, { method: 'POST', token: created.ownerToken })).status, 409);
   const endedAgain = await json<SessionSnapshot>(base, `${path}/end`, { method: 'POST', token: created.ownerToken });
   assert.equal(endedAgain.status, 200);
   assert.deepEqual(endedAgain.body, expired.body);

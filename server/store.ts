@@ -125,9 +125,9 @@ export class SessionStore {
     const timestamp = this.now();
     const result = this.database.prepare(`
       UPDATE sessions SET status = 'ended', ended_reason = 'expired',
-        updated_at = expires_at, location_json = NULL, trail_json = '[]'
+        updated_at = MAX(updated_at + 1, ?), location_json = NULL, trail_json = '[]'
       WHERE status != 'ended' AND expires_at <= ?
-    `).run(timestamp);
+    `).run(timestamp, timestamp);
     return Number(result.changes);
   }
 
@@ -167,7 +167,7 @@ export class SessionStore {
     const point: LocationPoint = { ...validated, receivedAt: iso(timestamp) };
     const trail = [...(JSON.parse(row.trail_json) as LocationPoint[]), point].slice(-MAX_TRAIL_POINTS);
     this.database.prepare(`
-      UPDATE sessions SET updated_at = ?, location_json = ?, trail_json = ? WHERE id = ?
+      UPDATE sessions SET updated_at = MAX(updated_at + 1, ?), location_json = ?, trail_json = ? WHERE id = ?
     `).run(timestamp, JSON.stringify(point), JSON.stringify(trail), id);
     return this.read(id, token);
   }
@@ -179,8 +179,23 @@ export class SessionStore {
     if (row.status === 'active') {
       const timestamp = this.now();
       this.database.prepare(`
-        UPDATE sessions SET status = 'help_requested', help_requested_at = ?, updated_at = ? WHERE id = ?
+        UPDATE sessions SET status = 'help_requested', help_requested_at = ?,
+          updated_at = MAX(updated_at + 1, ?) WHERE id = ?
       `).run(timestamp, timestamp, id);
+    }
+    return this.read(id, token);
+  }
+
+  retractHelp(id: string, token: string): SessionSnapshot {
+    this.expireDue();
+    const row = this.authorize(id, token, true);
+    if (row.status === 'ended') throw new ApiError(409, 'Session has ended.');
+    if (row.status === 'help_requested') {
+      const timestamp = this.now();
+      this.database.prepare(`
+        UPDATE sessions SET status = 'active', help_requested_at = NULL,
+          updated_at = MAX(updated_at + 1, ?) WHERE id = ?
+      `).run(timestamp, id);
     }
     return this.read(id, token);
   }
@@ -191,7 +206,8 @@ export class SessionStore {
     if (row.status === 'ended') return toSnapshot(row);
     const timestamp = this.now();
     this.database.prepare(`
-      UPDATE sessions SET status = 'ended', ended_reason = 'safe', updated_at = ?,
+      UPDATE sessions SET status = 'ended', ended_reason = 'safe',
+        updated_at = MAX(updated_at + 1, ?),
         location_json = NULL, trail_json = '[]' WHERE id = ?
     `).run(timestamp, id);
     return this.read(id, token);

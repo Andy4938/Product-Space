@@ -58,6 +58,10 @@ export function requestHelp(sessionId: string, token: string): Promise<SessionSn
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/help`, { method: 'POST' }, token);
 }
 
+export function retractHelp(sessionId: string, token: string): Promise<SessionSnapshot> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/help/retract`, { method: 'POST' }, token);
+}
+
 export function endSession(sessionId: string, token: string): Promise<SessionSnapshot> {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/end`, { method: 'POST' }, token);
 }

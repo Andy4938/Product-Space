@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, useMap } from 'react-leaflet';
+import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, ZoomControl, useMap } from 'react-leaflet';
 import type { SessionSnapshot } from './api-types';
-import { ApiRequestError, endSession, getSession, postLocation, requestHelp, startSession, type OwnerCredentials } from './api';
+import { ApiRequestError, endSession, getSession, postLocation, requestHelp, retractHelp, startSession, type OwnerCredentials } from './api';
 import { demoLocation } from './demoPath';
 
 const STORAGE_KEY = 'ghostsignal-owner-v1';
@@ -79,7 +79,15 @@ function locationHealth(snapshot: SessionSnapshot | null, now: number) {
 
 function MapFollow({ latitude, longitude }: { latitude: number; longitude: number }) {
   const map = useMap();
-  useEffect(() => { map.flyTo([latitude, longitude], 16, { duration: 0.7 }); }, [map, latitude, longitude]);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) {
+      map.setView([latitude, longitude], 16);
+      focused.current = true;
+    } else {
+      map.panTo([latitude, longitude], { animate: true, duration: 0.7 });
+    }
+  }, [map, latitude, longitude]);
   return null;
 }
 
@@ -91,6 +99,7 @@ function SessionMap({ snapshot, compact = false }: { snapshot: SessionSnapshot |
   return <div className={`map-shell ${compact ? 'map-compact' : ''}`}>
     <MapContainer center={point} zoom={location ? 16 : 14} scrollWheelZoom={false} zoomControl={false} className="map-canvas" aria-label="Map showing shared location near the University of Illinois campus">
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} referrerPolicy="strict-origin" />
+      <ZoomControl position="bottomright" />
       {trail.length > 1 && <Polyline positions={trail.map(p => [p.latitude, p.longitude])} pathOptions={{ color: help ? '#bb684d' : '#3d7d70', weight: 5, opacity: .75 }} />}
       {location && <>
         <Circle center={point} radius={Math.max(location.accuracy, 1)} pathOptions={{ color: help ? '#c57459' : '#579581', fillColor: help ? '#c57459' : '#579581', fillOpacity: .13, weight: 1.5 }} />
@@ -129,7 +138,7 @@ function firstLocation(): Promise<GeolocationPosition> {
 function StudentApp() {
   const [credentials, setCredentials] = useState<OwnerCredentials | null>(readOwner);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
-  const [busy, setBusy] = useState<'live' | 'demo' | 'help' | 'end' | null>(null);
+  const [busy, setBusy] = useState<'live' | 'demo' | 'help' | 'retract' | 'end' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -252,6 +261,14 @@ function StudentApp() {
     finally { setBusy(null); }
   };
 
+  const retract = async () => {
+    if (!credentials) return;
+    setBusy('retract'); setError(null);
+    try { const next = await retractHelp(credentials.sessionId, credentials.ownerToken); setSnapshot(previous => newerSnapshot(previous, next)); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(null); }
+  };
+
   const end = async () => {
     if (!credentials) return;
     setBusy('end'); setError(null);
@@ -300,7 +317,7 @@ function StudentApp() {
       {(pollError || locationError) && !ended && <div className="connection-notice" role="status"><Icon name="alert" size={17} /><span>Updates may be delayed: {locationError || pollError}</span></div>}
       {ended ? <div className="complete-card"><span className="complete-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={27} /></span><h2>{snapshot.endedReason === 'expired' ? 'Session time limit reached' : 'Sharing stopped'}</h2><p>{snapshot.endedReason === 'expired' ? 'This walk expired automatically. The location and route have been removed from the private link.' : 'You ended this walk. The location and route have been removed from the private link.'}</p></div> : <div className="session-grid"><section className="map-card"><div className="panel-head"><div><span className="overline">YOUR ROUTE</span><h2>{snapshot.location ? 'Current location' : 'Location pending'}</h2></div><MiniStatus snapshot={snapshot} now={now} connectionError={pollError || locationError} /></div><SessionMap snapshot={snapshot} compact /><div className="map-foot"><span><Icon name="pin" size={16} />{snapshot.location ? `Accuracy ±${Math.round(snapshot.location.accuracy)} m` : 'Waiting for GPS'}</span><span><Icon name="clock" size={16} />{snapshot.location ? `Captured ${relativeTime(snapshot.location.recordedAt, now)}` : 'No location yet'}</span></div></section>
       <aside className="side-stack"><section className="share-card"><div className="round-icon"><Icon name="link" size={21} /></div><span className="overline">INVITE YOUR PERSON</span><h2>Share this walk.</h2><p>Send this private link to someone you trust. The link gives them a read-only view of your location and status.</p><button className="dark-button" onClick={() => void copy()}><span>{copyNote || 'Copy guardian link'}</span><Icon name={copyNote === 'Private link copied' ? 'check' : 'link'} size={18} /></button><a className="open-guardian" href={shareUrl} target="_blank" rel="noreferrer">Open guardian view <Icon name="external" size={16} /></a>{showLink && <input className="link-input" aria-label="Guardian link" readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}<div className="card-note"><Icon name="shield" size={15} />Anyone with this link can view the walk. Share it privately. OpenStreetMap receives the map area your browser requests.</div></section>
-      <section className="actions-card"><span className="overline">YOUR CONTROLS</span>{!helpRequested && <button className="action-row help-action" disabled={busy !== null} onClick={() => void help()}><span className="action-icon"><Icon name="alert" size={20} /></span><span><strong>{busy === 'help' ? 'Sending help signal…' : 'I need help'}</strong><small>Quietly update your guardian view</small></span><Icon name="arrow" size={19} /></button>}<button className="action-row safe-action" disabled={busy !== null} onClick={() => void end()}><span className="action-icon"><Icon name="heart" size={20} /></span><span><strong>{busy === 'end' ? 'Ending sharing…' : 'I’m safe — end walk'}</strong><small>Stop sharing your location</small></span><Icon name="arrow" size={19} /></button></section></aside></div>}
+      <section className="actions-card"><span className="overline">YOUR CONTROLS</span>{!helpRequested ? <button className="action-row help-action" disabled={busy !== null} onClick={() => void help()}><span className="action-icon"><Icon name="alert" size={20} /></span><span><strong>{busy === 'help' ? 'Sending help signal…' : 'I need help'}</strong><small>Quietly update your guardian view</small></span><Icon name="arrow" size={19} /></button> : <button className="action-row retract-action" disabled={busy !== null} onClick={() => void retract()}><span className="action-icon"><Icon name="check" size={20} /></span><span><strong>{busy === 'retract' ? 'Retracting help signal…' : 'Retract help request'}</strong><small>Keep sharing your walk</small></span><Icon name="arrow" size={19} /></button>}<button className="action-row safe-action" disabled={busy !== null} onClick={() => void end()}><span className="action-icon"><Icon name="heart" size={20} /></span><span><strong>{busy === 'end' ? 'Ending sharing…' : 'I’m safe — end walk'}</strong><small>Stop sharing your location</small></span><Icon name="arrow" size={19} /></button></section></aside></div>}
       {!ended && <div className="page-open-note"><Icon name="eye" size={18} /><div><strong>Keep this page open during your walk.</strong> Browser location updates may pause if you close the tab, lock your phone, or move the app to the background.</div></div>}
       {ended && <button className="new-walk" onClick={() => { sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); window.scrollTo(0, 0); }}>Start another walk <Icon name="arrow" size={17} /></button>}
     </main>}

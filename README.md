@@ -50,8 +50,8 @@ The Vite development proxy targets port 3001. Change the proxy too if you change
 
 ## What is implemented
 
-- Mobile-friendly student flow with explicit location consent, simulated demo, guardian link sharing, help request, and session end.
-- A guardian map with a moving marker, accuracy radius, capped movement trail, and delayed/stale location indicators.
+- Mobile-friendly student flow with explicit location consent, simulated demo, guardian link sharing, help request, help retraction while the walk continues, and session end.
+- Student and guardian maps with zoom controls, a moving marker, accuracy radius, capped movement trail, and delayed/stale location indicators. Location updates preserve the chosen zoom level.
 - A shared backend and SQLite persistence; browser storage is only used to resume the student's credentials within that tab.
 - Separate random owner and guardian credentials. The guardian credential allows viewing only and travels in the URL fragment; API requests use an Authorization header.
 - A fixed two-hour session lifetime. Ended and expired sessions remove coordinates and trails from session state and reject further location writes.
