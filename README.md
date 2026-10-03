@@ -27,6 +27,14 @@ All three use the same backend.
 
 The demo route is simulated and labeled in both views. It does not request device location. To test actual GPS, choose **Start a live walk** and grant location permission when prompted.
 
+### Emergency homepage
+
+The circular **Emergency help** button is connected to the existing incident system. Hold it for **3 seconds** to create a live session (or reuse the current walk) and send a request to the prototype Campus Safety console. Location tracking starts with the session; permission denial or a slow GPS fix does not prevent the incident from being created. The page explicitly reports when no location is available. This does **not** call 911 or contact UIUC Police.
+
+After the server confirms receipt, the button turns yellow for a **3-second cancellation window**. Hold **Cancel** for 3 seconds to retract the request. The window pauses during the cancellation hold and resumes its remaining time if you release early. Success is shown only after the server confirms the cancellation; failed or uncertain requests can be retried. Retrying reuses the same session and incident. Cancellation updates the guardian and dispatcher but does not erase the incident or stop location sharing.
+
+Choose **View walk & guardian link** after the interaction to share the guardian link, configure optional alerts and responder details, or end the walk. During an existing walk, **Open emergency controls** brings up the same circular control. For a GPS-free demonstration, start a simulated walk first, then open emergency controls; the incident remains clearly labelled as a demo.
+
 ### Running on a phone
 
 A phone must reach the same frontend and backend through a **trusted HTTPS origin** for live geolocation. `http://localhost` is suitable on the computer running this project, but a phone's `localhost` points to the phone itself. Visiting the computer's plain HTTP LAN address is not enough for browser location access. The simulated route can be used for initial UI testing without GPS.

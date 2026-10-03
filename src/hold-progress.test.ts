@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEmergencyFlow, INITIAL_EMERGENCY_STATE } from './hold-progress';
 
-function harness() {
+function harness(actions?: { send: () => Promise<void>; retract: () => Promise<void> }) {
   let now = 0;
   let id = 0;
   let state = { ...INITIAL_EMERGENCY_STATE };
@@ -11,7 +11,7 @@ function harness() {
     now: () => now,
     request: callback => { frames.set(++id, callback); return id; },
     cancel: key => { frames.delete(key); },
-  });
+  }, actions);
   return {
     flow,
     get state() { return state; },
@@ -141,4 +141,59 @@ test('completed and cancelled demos can start a new emergency hold', () => {
     assert.equal(h.state.phase, 'emergency-holding');
     assert.equal(h.state.progress, 0);
   }
+});
+
+const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+
+test('slow server confirmation does not consume the cancel window or duplicate sends', async () => {
+  let confirm!: () => void;
+  let sends = 0;
+  const h = harness({ send: () => { sends++; return new Promise<void>(resolve => { confirm = resolve; }); }, retract: async () => {} });
+  h.flow.begin(); h.advance(3000);
+  await flush();
+  assert.equal(h.state.phase, 'sending');
+  assert.equal(h.flow.begin(), false);
+  h.advance(15000);
+  assert.equal(sends, 1);
+  confirm(); await flush();
+  assert.deepEqual(h.state, { phase: 'cancel-ready', progress: 0, remaining: 3000 });
+});
+
+test('send failure never shows success; a new hold can retry', async () => {
+  let fail = true;
+  const h = harness({ send: async () => { if (fail) throw new Error('Offline'); }, retract: async () => {} });
+  h.flow.begin(); h.advance(3000); await flush();
+  assert.equal(h.state.phase, 'send-error');
+  h.advance(10000);
+  assert.equal(h.state.phase, 'send-error');
+  fail = false;
+  h.flow.begin(); h.advance(3000); await flush();
+  assert.equal(h.state.phase, 'cancel-ready');
+});
+
+test('failed cancellation stays available for retry and waits for server acknowledgement', async () => {
+  let fail = true;
+  let confirm!: () => void;
+  const h = harness({ send: async () => {}, retract: async () => {
+    if (fail) throw new Error('Offline');
+    await new Promise<void>(resolve => { confirm = resolve; });
+  } });
+  h.flow.begin(); h.advance(3000); await flush();
+  h.flow.release(); h.flow.begin(); h.advance(3000); await flush();
+  assert.equal(h.state.phase, 'cancel-error');
+  h.advance(20000);
+  assert.equal(h.state.phase, 'cancel-error');
+  fail = false;
+  h.flow.begin(); h.advance(3000); await flush();
+  assert.equal(h.state.phase, 'cancel-sending');
+  confirm(); await flush();
+  assert.equal(h.state.phase, 'cancelled');
+});
+
+test('unmount ignores a late server response', async () => {
+  let confirm!: () => void;
+  const h = harness({ send: () => new Promise<void>(resolve => { confirm = resolve; }), retract: async () => {} });
+  h.flow.begin(); h.advance(3000); await flush();
+  h.flow.dispose(); confirm(); await flush();
+  assert.equal(h.state.phase, 'sending');
 });

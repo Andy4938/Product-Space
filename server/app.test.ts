@@ -412,3 +412,83 @@ test('an existing database without the new columns is migrated', (t) => {
     store.close();
   }
 });
+
+test('homepage emergency flow creates one live incident without waiting for GPS and retracts it for guardian and dispatch', async (t) => {
+  const { createEmergencyActions } = await import('../src/emergency-actions.js');
+  const { createEmergencyFlow, INITIAL_EMERGENCY_STATE } = await import('../src/hold-progress.js');
+  const { base } = setup(t);
+  let owner: import('../src/api.js').OwnerCredentials | null = null;
+  let snapshot: SessionSnapshot | null = null;
+  let creations = 0;
+  let loseSendResponse = true;
+  let loseRetractResponse = true;
+  const actions = createEmergencyActions({
+    readOwner: () => owner,
+    saveOwner: (value, initial) => { owner = value; snapshot = initial; },
+    onSnapshot: next => { snapshot = next; },
+  }, {
+    startSession: async mode => {
+      creations++;
+      const result = await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode } });
+      assert.equal(result.status, 201);
+      return result.body;
+    },
+    getSession: async (id, token) => (await json<SessionSnapshot>(base, `/api/sessions/${id}`, { token })).body,
+    requestHelp: async (id, token) => {
+      const result = await json<SessionSnapshot>(base, `/api/sessions/${id}/help`, { method: 'POST', token });
+      assert.equal(result.status, 200);
+      if (loseSendResponse) { loseSendResponse = false; throw new Error('Response lost'); }
+      return result.body;
+    },
+    retractHelp: async (id, token) => {
+      const result = await json<SessionSnapshot>(base, `/api/sessions/${id}/help/retract`, { method: 'POST', token });
+      assert.equal(result.status, 200);
+      if (loseRetractResponse) { loseRetractResponse = false; throw new Error('Response lost'); }
+      return result.body;
+    },
+  });
+  let state = { ...INITIAL_EMERGENCY_STATE };
+  let now = 0;
+  let frameId = 0;
+  const frames = new Map<number, () => void>();
+  const flow = createEmergencyFlow(next => { state = next; }, {
+    now: () => now,
+    request: callback => { frames.set(++frameId, callback); return frameId; },
+    cancel: id => { frames.delete(id); },
+  }, actions);
+  t.after(() => flow.dispose());
+  const advance = (ms: number) => { now += ms; const queued = [...frames.values()]; frames.clear(); queued.forEach(fn => fn()); };
+  const settle = async (phase: string) => {
+    for (let i = 0; i < 100 && state.phase !== phase; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(state.phase, phase);
+  };
+  flow.begin(); advance(3000);
+  await settle('cancel-ready');
+  assert.ok(owner); assert.ok(snapshot);
+  const saved = owner as import('../src/api.js').OwnerCredentials;
+  const received = snapshot as SessionSnapshot;
+  assert.equal(received.mode, 'live');
+  assert.equal(received.location, null);
+  assert.equal(received.status, 'help_requested');
+  assert.equal(creations, 1);
+  let guardian = await json<SessionSnapshot>(base, `/api/sessions/${saved.sessionId}`, { token: saved.guardianToken });
+  assert.equal(guardian.body.status, 'help_requested');
+  let queue = await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE });
+  assert.equal(queue.body.incidents.length, 1);
+  const incidentId = queue.body.incidents[0].id;
+  flow.release(); advance(2900); flow.begin(); advance(3000);
+  await settle('cancelled');
+  guardian = await json<SessionSnapshot>(base, `/api/sessions/${saved.sessionId}`, { token: saved.guardianToken });
+  assert.equal(guardian.body.status, 'active');
+  queue = await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE });
+  assert.ok(queue.body.incidents[0].walkerCancelledAt);
+  assert.equal(queue.body.incidents[0].id, incidentId);
+  assert.equal(queue.body.incidents[0].events.filter(event => event.kind === 'walker_cancelled').length, 1);
+  // A retry reuses the existing session and incident; it never creates duplicates.
+  await Promise.all([actions.send(), actions.send()]);
+  assert.equal(creations, 1);
+  queue = await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE });
+  assert.equal(queue.body.incidents.length, 1);
+  assert.equal(queue.body.incidents[0].id, incidentId);
+  assert.equal(queue.body.incidents[0].walkerCancelledAt, null);
+});

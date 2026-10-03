@@ -1,4 +1,5 @@
 import { EmergencyHold } from './EmergencyHold';
+import { createEmergencyActions } from './emergency-actions';
 import './landing.css';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, ZoomControl, useMap } from 'react-leaflet';
@@ -41,7 +42,7 @@ function WalkGuide() {
       <ol className="guide-steps">
         <li><Icon name="pin" /><div><strong>Start your walk</strong><p>Allow location access, or explore a simulated UIUC walk without using your GPS.</p></div></li>
         <li><Icon name="link" /><div><strong>Bring someone along</strong><p>Send the private guardian link to someone you trust. Anyone with the link can view your location and status.</p></div></li>
-        <li><Icon name="shield" /><div><strong>Stay connected</strong><p>Keep this page open and your screen unlocked. A quiet help signal updates the guardian dashboard; it does not send notifications or contact emergency services.</p></div></li>
+        <li><Icon name="shield" /><div><strong>Stay connected</strong><p>Keep this page open and your screen unlocked. A help signal opens a request in the prototype safety console and updates your guardian. Guardian notifications require setup. This prototype is not connected to 911 or UIUC Police.</p></div></li>
       </ol>
       <div className="guide-note"><Icon name="clock" size={17} />End sharing whenever you choose. Sessions expire after two hours.</div>
       <button className="primary-button" onClick={() => dialog.current?.close()}>Got it. Let’s walk. <Icon name="arrow" /></button>
@@ -260,12 +261,33 @@ function StudentApp() {
   const [copyNote, setCopyNote] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [emergencyLanding, setEmergencyLanding] = useState(false);
+  const [emergencyBusy, setEmergencyBusy] = useState(false);
+  const emergencyOwner = useRef(credentials);
+  emergencyOwner.current = credentials;
   const now = useNow();
   const demoIndex = useRef(0);
   const startLock = useRef(false);
   const lastAcceptedFixAt = useRef(0);
   const trackingActive = Boolean(snapshot && snapshot.status !== 'ended' && !ownerInvalid);
   useStatusHaptics(snapshot?.incident?.status ?? null);
+  const [emergencyActions] = useState(() => createEmergencyActions({
+    readOwner: () => emergencyOwner.current,
+    saveOwner: (owner, initial) => {
+      emergencyOwner.current = owner;
+      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(owner)); }
+      catch { setLocationError('Browser storage is unavailable. Keep this page open to retain your session.'); }
+      lastAcceptedFixAt.current = 0;
+      setCredentials(owner);
+      setSnapshot(initial);
+    },
+    onSnapshot: next => setSnapshot(previous => newerSnapshot(previous, next)),
+  }));
+  const emergencyRequest = async () => {
+    setEmergencyLanding(true);
+    await emergencyActions.send();
+  };
+
 
   useEffect(() => {
     if (!credentials || ownerInvalid) return;
@@ -300,6 +322,10 @@ function StudentApp() {
 
   useEffect(() => {
     if (!credentials || credentials.mode !== 'live' || !trackingActive) return;
+    if (!navigator.geolocation || !window.isSecureContext) {
+      setLocationError('Location is unavailable on this page. Use HTTPS and enable location access; the safety console may not have your position.');
+      return;
+    }
     const uploader = createLocationUploader({
       send: (point: ReturnType<typeof positionPayload>) => postLocation(credentials.sessionId, credentials.ownerToken, point),
       getAcceptedRecordedAt: () => lastAcceptedFixAt.current,
@@ -351,6 +377,7 @@ function StudentApp() {
   const start = async (mode: 'live' | 'demo') => {
     if (startLock.current) return;
     startLock.current = true;
+    setEmergencyLanding(false);
     setBusy(mode); setError(null); setPollError(null); setLocationError(null);
     try {
       let first: ReturnType<typeof positionPayload>;
@@ -409,24 +436,30 @@ function StudentApp() {
     }
     await copy();
   };
-  const resetToStart = () => { sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); setOwnerInvalid(false); setPollError(null); window.scrollTo(0, 0); };
+  const resetToStart = () => { setEmergencyLanding(false); setEmergencyBusy(false); sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); setOwnerInvalid(false); setPollError(null); window.scrollTo(0, 0); };
 
   const ended = snapshot?.status === 'ended';
   const helpRequested = snapshot?.status === 'help_requested';
   const incident = snapshot?.incident ?? null;
   const showQuietStatus = Boolean(incident && (helpRequested || incident.status !== 'resolved'));
 
-  if (!credentials) {
+  if (!credentials || (emergencyLanding && !ended && !ownerInvalid)) {
     return <div className="site-shell landing-site">
     <header className="topbar"><div className="brand-lockup"><Brand /><span className="brand-descriptor">YOUR QUIET CONNECTION</span></div><div className="topbar-right"><WalkGuide /><span className="campus-tag"><span /> BUILT AT UIUC</span></div></header>
     <main className="landing">
       <h1 className="sr-only">Emergency help and walk companion</h1>
-      <EmergencyHold />
+      <EmergencyHold onRequest={emergencyRequest} onRetract={emergencyActions.retract} onBusyChange={setEmergencyBusy} disabled={busy !== null} />
+      {credentials && <div className="emergency-session" role="status">
+        <span>{credentials.mode === 'demo' ? 'SIMULATED WALK · DEMO' : 'LIVE SESSION'}</span>
+        {incident && <strong>{incident.reference} · {incident.status === 'new' ? 'Awaiting dispatcher' : incident.status}</strong>}
+        <p>{snapshot?.location ? 'Location sharing is active. Keep this page open.' : 'No location received yet. Allow location access so responders can find you.'}</p>
+        {(locationError || pollError) && <p className="hold-error">{locationError || pollError}</p>}
+      </div>}
       <section className="walk-shortcuts" aria-label="Start a walk">
-        <div className="walk-shortcut-buttons">
-          <button className="primary-button" disabled={busy !== null} onClick={() => void start('live')}><span><Icon name="pin" size={18} />{busy === 'live' ? 'Finding your location…' : 'Start a live walk'}</span><Icon name="arrow" size={18} /></button>
-          <button className="secondary-button" disabled={busy !== null} onClick={() => void start('demo')}><span>{busy === 'demo' ? 'Starting demo…' : 'Try a simulated walk'}</span><Icon name="arrow" size={18} /></button>
-        </div>
+        {credentials ? <button className="primary-button" disabled={emergencyBusy} onClick={() => setEmergencyLanding(false)}>View walk & guardian link <Icon name="arrow" size={18} /></button> : <div className="walk-shortcut-buttons">
+          <button className="primary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('live')}><span><Icon name="pin" size={18} />{busy === 'live' ? 'Finding your location…' : 'Start a live walk'}</span><Icon name="arrow" size={18} /></button>
+          <button className="secondary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('demo')}><span>{busy === 'demo' ? 'Starting demo…' : 'Try a simulated walk'}</span><Icon name="arrow" size={18} /></button>
+        </div>}
         <p>Share your walk with someone you trust.</p>
         {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
       </section>
@@ -463,6 +496,7 @@ function StudentApp() {
       {(pollError || locationError) && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />Updates delayed: {locationError || pollError}</div>}
       {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
       <section className="signal-card">
+        {!helpRequested && <button className="end-walk" onClick={() => setEmergencyLanding(true)}><Icon name="alert" size={20} />Open emergency controls</button>}
         {helpRequested ? null : <HoldToCheckIn onSignal={() => void help()} disabled={busy === 'help'} />}
         {showQuietStatus && incident && <QuietStatus incident={incident} helpActive={helpRequested} onCancel={() => void retract()} cancelling={busy === 'retract'} />}
       </section>

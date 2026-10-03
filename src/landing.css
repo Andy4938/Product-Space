@@ -327,3 +327,11 @@
 .landing-site .cancel-mode .cancel-window { font-size: clamp(18px, 2.5svh, 24px); letter-spacing: .025em; margin-top: 0; }
 .landing-site .cancel-mode.holding .cancel-window { font-size: 14px; }
 .landing-site .hold-status.cancel-prompt { color: #ff737c; font-weight: 650; }
+
+.landing-site .emergency-orb:disabled { opacity: 1; cursor: progress; }
+.landing-site .emergency-orb.sending::before, .landing-site .emergency-orb.cancel-sending::before { filter: brightness(.7); }
+.landing-site .hold-error { max-width: 440px; color: #ff9ba2; font-size: 13px; line-height: 1.5; text-align: center; margin: 8px 0 0; }
+.landing-site .emergency-session { display: grid; gap: 8px; text-align: center; max-width: 480px; margin-top: -12px; }
+.landing-site .emergency-session > span { color: #a8bddf; font-size: 10px; letter-spacing: .1em; }
+.landing-site .emergency-session strong { font-size: 16px; }
+.landing-site .emergency-session p { font-size: 12px; line-height: 1.5; margin: 0; }

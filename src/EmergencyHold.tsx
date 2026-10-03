@@ -1,22 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
 import { createEmergencyFlow, HOLD_MS, INITIAL_EMERGENCY_STATE } from './hold-progress';
 
-export function EmergencyHold() {
-  const [{ progress, phase, remaining }, setState] = useState(INITIAL_EMERGENCY_STATE);
-  const cancelling = phase === 'cancel-ready' || phase === 'cancel-holding';
+export function EmergencyHold({ onRequest, onRetract, onBusyChange, disabled = false }: {
+  onRequest: () => Promise<void>;
+  onRetract: () => Promise<void>;
+  onBusyChange: (busy: boolean) => void;
+  disabled?: boolean;
+}) {
+  const callbacks = useRef({ onRequest, onRetract, onBusyChange });
+  callbacks.current = { onRequest, onRetract, onBusyChange };
+  const [{ progress, phase, remaining, error }, setState] = useState(INITIAL_EMERGENCY_STATE);
+  const cancelling = phase === 'cancel-ready' || phase === 'cancel-holding' || phase === 'cancel-sending' || phase === 'cancel-error';
   const holding = phase === 'emergency-holding' || phase === 'cancel-holding';
+  const pending = phase === 'sending' || phase === 'cancel-sending';
   const input = useRef<number | string | null>(null);
-  const [hold] = useState(() => createEmergencyFlow(setState, {
+  const [hold] = useState(() => createEmergencyFlow(next => {
+    if (next.phase === 'sending' || next.phase === 'cancel-sending') input.current = null;
+    setState(next);
+    callbacks.current.onBusyChange(!['idle', 'complete', 'cancelled', 'send-error', 'cancel-error'].includes(next.phase));
+  }, {
     now: () => performance.now(),
     request: callback => requestAnimationFrame(callback),
     cancel: id => cancelAnimationFrame(id),
-  }));
+  }, { send: () => callbacks.current.onRequest(), retract: () => callbacks.current.onRetract() }));
   const cancel = () => {
     input.current = null;
     hold.release();
   };
   const begin = (source: number | string) => {
-    if (input.current !== null) return;
+    if (input.current !== null || disabled || pending) return;
     if (hold.begin()) input.current = source;
   };
   useEffect(() => {
@@ -35,7 +47,7 @@ export function EmergencyHold() {
   }, [hold]);
 
   return <section className="emergency-focus" aria-label="Emergency help">
-    <button type="button" className={`emergency-orb ${holding ? 'holding' : phase} ${cancelling ? 'cancel-mode' : ''}`} aria-label={`${cancelling ? 'Cancel emergency help' : 'Emergency help'} — hold for 3 seconds`} aria-describedby="hold-instructions hold-status"
+    <button type="button" disabled={disabled || pending} aria-busy={pending} className={`emergency-orb ${holding ? 'holding' : phase} ${cancelling ? 'cancel-mode' : ''}`} aria-label={`${cancelling ? 'Cancel emergency help' : 'Emergency help'} — hold for 3 seconds`} aria-describedby="hold-instructions hold-status"
       onPointerDown={event => {
         if (!event.isPrimary || event.button !== 0 || input.current !== null) return;
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -66,12 +78,13 @@ export function EmergencyHold() {
       </svg>
       <span className="orb-content">
         <svg className="orb-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">{cancelling ? <path d="m9 9 14 14m0-14L9 23" strokeLinecap="round" /> : <><path d="M16 3 5 7v9c0 7 11 13 11 13s11-6 11-13V7L16 3Z" /><path d="M16 10v8m0 4v.2" strokeLinecap="round" /></>}</svg>
-        <span className="orb-title">{cancelling ? 'Cancel' : <>Emergency<br />help</>}</span>
-        {(!cancelling || holding) && <span className="orb-hint" aria-hidden="true">{holding ? `${Math.max(1, Math.ceil(HOLD_MS / 1000 * (1 - progress)))}s · Keep holding` : 'Hold for 3 seconds'}</span>}
-        <span className="cancel-window" aria-hidden="true">{cancelling ? phase === 'cancel-holding' ? 'COUNTDOWN PAUSED' : `${(remaining / 1000).toFixed(1)}s TO CANCEL` : '\u00a0'}</span>
+        <span className="orb-title">{pending ? phase === 'sending' ? 'Sending…' : 'Cancelling…' : cancelling ? 'Cancel' : <>Emergency<br />help</>}</span>
+        {!pending && (!cancelling || holding) && <span className="orb-hint" aria-hidden="true">{holding ? `${Math.max(1, Math.ceil(HOLD_MS / 1000 * (1 - progress)))}s · Keep holding` : 'Hold for 3 seconds'}</span>}
+        <span className="cancel-window" aria-hidden="true">{cancelling ? phase === 'cancel-error' ? 'HOLD TO RETRY' : phase === 'cancel-holding' || phase === 'cancel-sending' ? 'COUNTDOWN PAUSED' : `${(remaining / 1000).toFixed(1)}s TO CANCEL` : '\u00a0'}</span>
       </span>
     </button>
-    <span id="hold-instructions" className="sr-only">Hold with your finger, mouse, Space, or Enter. Hold for 3 seconds. Release early to stop the hold. After a help hold, you have 3 seconds to start holding Cancel. The countdown pauses while holding Cancel. This is a demo only.</span>
-    <p id="hold-status" className={`hold-status ${phase === 'cancel-ready' ? 'cancel-prompt' : ''}`} role="status">{phase === 'complete' ? 'Demo complete. No alert was sent.' : phase === 'cancelled' ? 'Cancelled. No alert was sent.' : phase === 'cancel-holding' ? 'Cancel window paused · Release to stop.' : phase === 'cancel-ready' ? 'Changed your mind? Hold to cancel.' : holding ? 'Release to stop.' : 'Demo only · No calls or alerts are sent.'}</p>
+    <span id="hold-instructions" className="sr-only">Hold with your finger, mouse, Space, or Enter. Hold for 3 seconds. Release early to stop the hold. After a help hold, you have 3 seconds to start holding Cancel. The countdown pauses while holding Cancel. Sends to the prototype Campus Safety console, not 911 or UIUC Police.</span>
+    <p id="hold-status" className={`hold-status ${phase === 'cancel-ready' ? 'cancel-prompt' : ''}`} role="status">{phase === 'sending' ? 'Waiting for the server to confirm your request…' : phase === 'cancel-sending' ? 'Waiting for cancellation confirmation…' : phase === 'send-error' ? 'Request not confirmed. Hold to retry.' : phase === 'cancel-error' ? 'Cancellation not confirmed. Hold Cancel to retry.' : phase === 'complete' ? 'Request received by the prototype safety console.' : phase === 'cancelled' ? 'Cancellation received. Dispatch can still review your request.' : phase === 'cancel-holding' ? 'Cancel window paused · Release to stop.' : phase === 'cancel-ready' ? 'Changed your mind? Hold to cancel.' : holding ? 'Release to stop.' : 'Sends your location to the prototype safety console. Not 911.'}</p>
+    {error && <p className="hold-error" role="alert">{error}</p>}
   </section>;
 }
