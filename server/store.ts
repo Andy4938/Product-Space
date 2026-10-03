@@ -116,6 +116,7 @@ function toIncidentSummary(row: IncidentRow): IncidentSummary {
     unit: row.unit,
     resolvedAt: isoOrNull(row.resolved_at),
     outcome: row.outcome,
+    walkerCancelledAt: isoOrNull(row.walker_cancelled_at),
   };
 }
 
@@ -355,13 +356,13 @@ export class SessionStore {
     this.expireDue();
     const row = this.authorize(id, token, true);
     if (row.status === 'ended') throw new ApiError(409, 'Session has ended.');
-    if (row.status === 'active') {
+    const open = this.openIncident(id);
+    if (row.status === 'active' || !open) {
       const timestamp = this.now();
       this.database.prepare(`
         UPDATE sessions SET status = 'help_requested', help_requested_at = ?,
           updated_at = MAX(updated_at + 1, ?) WHERE id = ?
       `).run(timestamp, timestamp, id);
-      const open = this.openIncident(id);
       let reference: string;
       if (open) {
         reference = open.reference;
@@ -370,10 +371,13 @@ export class SessionStore {
       } else {
         reference = `GS-${randomBytes(3).toString('hex').toUpperCase()}`;
         const opened: IncidentEvent = { at: iso(timestamp), kind: 'opened', text: 'Silent help signal received from walker.' };
+        const previousIncident = this.database.prepare('SELECT updated_at FROM incidents WHERE session_id = ? ORDER BY rowid DESC LIMIT 1')
+          .get(id) as unknown as Pick<IncidentRow, 'updated_at'> | undefined;
+        const revision = Math.max(timestamp, row.updated_at + 1, (previousIncident?.updated_at ?? -Infinity) + 1);
         this.database.prepare(`
           INSERT INTO incidents (id, session_id, reference, status, opened_at, updated_at, events_json)
           VALUES (?, ?, ?, 'new', ?, ?, ?)
-        `).run(randomUUID(), id, reference, timestamp, timestamp, JSON.stringify([opened]));
+        `).run(randomUUID(), id, reference, timestamp, revision, JSON.stringify([opened]));
       }
       this.notifyGuardian(row, {
         sms: `GhostSignal: the walker sent a SILENT help signal. Campus Safety is notified (${reference}). Please do not call or text them; it could alert someone nearby. ${lastLocationText(row.location_json, timestamp)}`,
@@ -426,7 +430,7 @@ export class SessionStore {
     this.expireDue();
     const timestamp = this.now();
     const rows = this.database.prepare(`
-      SELECT * FROM incidents WHERE status != 'resolved' OR resolved_at > ? ORDER BY opened_at DESC LIMIT 200
+      SELECT * FROM incidents WHERE status != 'resolved' OR resolved_at > ? ORDER BY opened_at DESC, rowid DESC LIMIT 200
     `).all(timestamp - RESOLVED_VISIBLE_MS) as unknown as IncidentRow[];
     return { serverTime: iso(timestamp), incidents: rows.map((row) => this.toDispatchIncident(row)) };
   }
@@ -504,7 +508,7 @@ export class SessionStore {
   // ---- internals ----
 
   private toSnapshot(row: SessionRow): SessionSnapshot {
-    const incident = this.database.prepare('SELECT * FROM incidents WHERE session_id = ? ORDER BY opened_at DESC LIMIT 1')
+    const incident = this.database.prepare('SELECT * FROM incidents WHERE session_id = ? ORDER BY rowid DESC LIMIT 1')
       .get(row.id) as unknown as IncidentRow | undefined;
     return {
       id: row.id,
@@ -533,7 +537,6 @@ export class SessionStore {
       ...toIncidentSummary(row),
       mode: session.mode,
       walkerDescription: !open ? null : sharing ? session.walker_description : row.final_walker_description,
-      walkerCancelledAt: isoOrNull(row.walker_cancelled_at),
       sessionState: sharing ? 'sharing' : session.ended_reason === 'expired' ? 'expired' : 'ended',
       location: locationJson === null ? null : JSON.parse(locationJson) as LocationPoint,
       trail: trailJson === null ? [] : JSON.parse(trailJson) as LocationPoint[],
@@ -544,7 +547,7 @@ export class SessionStore {
   }
 
   private openIncident(sessionId: string): IncidentRow | undefined {
-    return this.database.prepare(`SELECT * FROM incidents WHERE session_id = ? AND status != 'resolved' ORDER BY opened_at DESC LIMIT 1`)
+    return this.database.prepare(`SELECT * FROM incidents WHERE session_id = ? AND status != 'resolved' ORDER BY rowid DESC LIMIT 1`)
       .get(sessionId) as unknown as IncidentRow | undefined;
   }
 

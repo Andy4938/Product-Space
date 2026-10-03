@@ -335,3 +335,66 @@
 .landing-site .emergency-session > span { color: #a8bddf; font-size: 10px; letter-spacing: .1em; }
 .landing-site .emergency-session strong { font-size: 16px; }
 .landing-site .emergency-session p { font-size: 12px; line-height: 1.5; margin: 0; }
+
+/* The confirmed incident takes the place of the large hold target. */
+.landing-site .emergency-status-card { width: min(680px, 100%); padding: clamp(24px, 4vw, 42px); border: 1px solid #9cb7df38; border-radius: 22px; background: linear-gradient(160deg, #192a46, #111e34 72%); box-shadow: 0 25px 90px #03091666, inset 0 1px 0 #e4efff12; color: #edf3ff; }
+.landing-site .emergency-status-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.landing-site .emergency-received-mark { width: 33px; height: 33px; display: grid; place-items: center; flex: none; border: 1px solid #91dfc37a; border-radius: 50%; color: #bdffdf; background: #48a48623; font-size: 17px; font-weight: 700; }
+.landing-site .emergency-status-kicker { color: #b9d2f3; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.landing-site .emergency-demo-tag { margin-left: auto; color: #edd89f; font-size: 9px; font-weight: 750; letter-spacing: .08em; }
+.landing-site .emergency-status-card h1 { font-size: clamp(31px, 5vw, 48px); letter-spacing: -.045em; line-height: 1.08; margin: 24px 0 11px; font-weight: 670; }
+.landing-site .emergency-status-summary { max-width: 570px; color: #bfcee2; font-size: 14px; line-height: 1.65; margin: 0 0 25px; }
+.landing-site .emergency-cancel-pending, .landing-site .emergency-action-error, .landing-site .emergency-transport-warning { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 9px; margin: 0 0 18px; font-size: 12px; line-height: 1.55; }
+.landing-site .emergency-cancel-pending { background: #d9b7561c; border: 1px solid #efca7254; color: #f4dda2; }
+.landing-site .emergency-action-error { background: #ed6a6a16; border: 1px solid #fa828256; color: #ffbaba; }
+.landing-site .emergency-transport-warning { background: #879cc81b; border: 1px solid #a8bce255; color: #d0def7; }
+.landing-site .emergency-cancel-pending span, .landing-site .emergency-action-error span, .landing-site .emergency-transport-warning span { color: #b7c9de; }
+.landing-site .emergency-milestones { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; list-style: none; margin: 28px 0; padding: 0; }
+.landing-site .emergency-milestones li { min-width: 0; position: relative; color: #7e92af; }
+.landing-site .emergency-milestones li::before { content: ''; position: absolute; height: 1px; left: 0; right: 0; top: 9px; background: #6d83a753; }
+.landing-site .emergency-milestones li:first-child::before { left: 8px; }
+.landing-site .emergency-milestones li:last-child::before { right: calc(100% - 8px); }
+.landing-site .emergency-milestones li.reached::before { background: #79d2b4a8; }
+.landing-site .milestone-track { position: relative; z-index: 1; display: flex; justify-content: flex-start; align-items: center; width: 18px; height: 18px; border-radius: 50%; background: #283d59; border: 1px solid #6682a966; margin-bottom: 11px; }
+.landing-site .milestone-track > span { width: 6px; height: 6px; border-radius: 50%; margin: auto; background: #8799b7; }
+.landing-site .reached .milestone-track { background: #2d6b64; border-color: #9fe7c9; box-shadow: 0 0 0 3px #54c7a421; }
+.landing-site .reached .milestone-track > span { background: #ccffe6; }
+.landing-site .milestone-copy { display: flex; flex-direction: column; gap: 4px; padding-right: 10px; }
+.landing-site .milestone-copy strong { font-size: 11px; line-height: 1.3; font-weight: 620; }
+.landing-site .reached .milestone-copy strong { color: #dcece9; }
+.landing-site .milestone-copy small { color: #7990a9; font-size: 10px; font-variant-numeric: tabular-nums; }
+.landing-site .emergency-location { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 19px 20px; background: #0c1a2e; border: 1px solid #839dc530; border-radius: 12px; }
+.landing-site .emergency-location.needs-attention { border-color: #e5b47566; }
+.landing-site .emergency-location > div { min-width: 0; }
+.landing-site .emergency-section-label { display: block; color: #8bb1ce; font-size: 9px; letter-spacing: .15em; font-weight: 750; margin-bottom: 6px; }
+.landing-site .emergency-location strong { color: #ecf6fa; font-size: 13px; }
+.landing-site .emergency-location p { color: #a5bad0; font-size: 11px; margin: 6px 0 0; line-height: 1.5; }
+.landing-site .emergency-location .emergency-location-error { color: #f2b5a1; overflow-wrap: anywhere; }
+.landing-site .emergency-location button { flex: none; min-height: 42px; border: 1px solid #9ec7dd76; border-radius: 8px; background: #84cfe020; color: #d4f5f9; padding: 9px 13px; font-size: 11px; font-weight: 700; }
+.landing-site .emergency-status-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 19px; }
+.landing-site .emergency-status-actions button { min-height: 44px; border-radius: 8px; padding: 11px 15px; font-size: 11px; font-weight: 700; }
+.landing-site .emergency-cancel-action { color: #f5d994; border: 1px solid #eccd8166; background: #e3b75a1c; }
+.landing-site .emergency-resend-action { color: #182a39; border: 1px solid #d2e4ff; background: #bcd3fb; }
+.landing-site .emergency-secondary-action { color: #d3e3f6; border: 1px solid #8eabd146; background: #819ccc14; }
+.landing-site .emergency-status-actions button:hover:not(:disabled), .landing-site .emergency-location button:hover:not(:disabled) { filter: brightness(1.15); }
+.landing-site .emergency-inline-error { color: #ffbaba; font-size: 11px; line-height: 1.5; margin: 9px 0 0; }
+.landing-site .emergency-status-foot { color: #8da2bb; font-size: 10px; line-height: 1.55; margin: 23px 0 0; }
+@media (max-width: 600px) {
+  .landing-site .emergency-status-card { padding: 24px 19px; border-radius: 17px; }
+  .landing-site .emergency-status-card h1 { margin-top: 20px; }
+  .landing-site .emergency-milestones { grid-template-columns: 1fr; gap: 0; margin: 22px 0; }
+  .landing-site .emergency-milestones li { display: flex; gap: 12px; min-height: 49px; }
+  .landing-site .emergency-milestones li::before { width: 1px; height: 100%; left: 8px; top: 0; right: auto; }
+  .landing-site .emergency-milestones li:first-child::before { top: 9px; height: calc(100% - 9px); }
+  .landing-site .emergency-milestones li:last-child::before { display: none; }
+  .landing-site .milestone-track { flex: none; margin: 0; }
+  .landing-site .milestone-copy { padding: 1px 0 10px; }
+  .landing-site .emergency-location { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .landing-site .emergency-status-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .landing-site .emergency-status-actions button { width: 100%; }
+}
+@media (max-width: 400px) { .landing-site .emergency-status-actions { grid-template-columns: 1fr; } }
+.landing-site .emergency-stop-confirm { margin-top: 12px; padding: 20px; border: 1px solid #d5bf865e; border-radius: 12px; background: #c9a65e14; text-align: left; }
+.landing-site .emergency-stop-confirm h2 { color: #f4e4bd; font-size: 18px; font-weight: 650; margin: 0 0 7px; }
+.landing-site .emergency-stop-confirm p { color: #bdc9d9; font-size: 12px; line-height: 1.6; margin: 0 0 15px; }
+.landing-site .emergency-stop-confirm .walk-shortcut-buttons { gap: 10px; }

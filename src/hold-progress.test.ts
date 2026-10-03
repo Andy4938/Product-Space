@@ -197,3 +197,18 @@ test('unmount ignores a late server response', async () => {
   h.flow.dispose(); confirm(); await flush();
   assert.equal(h.state.phase, 'sending');
 });
+
+test('explicit resend resets a failed cancel phase into a new send hold', async () => {
+  let sends = 0;
+  const h = harness({ send: async () => { sends++; }, retract: async () => { throw new Error('Offline'); } });
+  h.flow.begin(); h.advance(3000); await flush();
+  h.flow.release(); h.flow.begin(); h.advance(3000); await flush();
+  assert.equal(h.state.phase, 'cancel-error');
+  h.flow.reset();
+  assert.equal(h.state.phase, 'idle');
+  h.flow.begin();
+  assert.equal(h.state.phase, 'emergency-holding');
+  h.advance(3000); await flush();
+  assert.equal(sends, 2);
+  assert.equal(h.state.phase, 'cancel-ready');
+});

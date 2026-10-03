@@ -1,6 +1,13 @@
 import { getSession, requestHelp, retractHelp, startSession, type OwnerCredentials } from './api';
 import type { SessionSnapshot } from './api-types';
 
+function confirmsAction(kind: 'send' | 'retract', snapshot: SessionSnapshot): boolean {
+  if (kind === 'send') {
+    return snapshot.status === 'help_requested' && snapshot.incident !== null && snapshot.incident.status !== 'resolved';
+  }
+  return snapshot.status === 'active' && snapshot.incident?.walkerCancelledAt != null;
+}
+
 export function createEmergencyActions(hooks: {
   readOwner: () => OwnerCredentials | null;
   saveOwner: (owner: OwnerCredentials, snapshot: SessionSnapshot) => void;
@@ -22,18 +29,17 @@ export function createEmergencyActions(hooks: {
         hooks.saveOwner(owner, created.session);
       }
       let next: SessionSnapshot;
-      const expected = kind === 'send' ? 'help_requested' : 'active';
       try {
         next = await (kind === 'send' ? api.requestHelp : api.retractHelp)(owner.sessionId, owner.ownerToken);
       } catch (cause) {
         // A timed-out POST may have reached the server. Reconcile before asking
         // for a retry; never claim cancellation or delivery without confirmation.
         const current = await api.getSession(owner.sessionId, owner.ownerToken).catch(() => null);
-        if (!current || current.status !== expected) throw cause;
+        if (!current || !confirmsAction(kind, current)) throw cause;
         next = current;
       }
+      if (!confirmsAction(kind, next)) throw new Error('The server has not confirmed this action. Try again.');
       hooks.onSnapshot(next);
-      if (next.status !== expected || (kind === 'send' && !next.incident)) throw new Error('The server has not confirmed this action. Try again.');
     })().finally(() => { pending = null; pendingKind = null; });
     return pending;
   };

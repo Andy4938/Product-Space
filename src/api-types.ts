@@ -35,6 +35,7 @@ export interface IncidentSummary {
   unit: string | null;
   resolvedAt: string | null;
   outcome: IncidentOutcome | null;
+  walkerCancelledAt: string | null;
 }
 
 export interface SessionSnapshot {
@@ -79,7 +80,6 @@ export type WalkerSessionState = 'sharing' | 'ended' | 'expired';
 export interface DispatchIncident extends IncidentSummary {
   mode: SessionMode;
   walkerDescription: string | null;
-  walkerCancelledAt: string | null;
   sessionState: WalkerSessionState;
   location: LocationPoint | null;
   trail: LocationPoint[];

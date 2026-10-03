@@ -12,6 +12,7 @@ import { startLocationWatch } from './location-watch';
 import { accuracyLabel, Brand, CAMPUS_CENTER, clockTime, elapsed, Icon, locationHealth, mapLink, movementSummary, playTones, relativeTime, useNow } from './shared';
 
 const STORAGE_KEY = 'ghostsignal-owner-v1';
+const EMERGENCY_VIEW_KEY = 'ghostsignal-emergency-view-v1';
 const TEXT_VIEW_KEY = 'ghostsignal-text-view';
 const LINK_CACHE = 'ghostsignal-links';
 const POLL_MS = 2000;
@@ -60,6 +61,20 @@ function readOwner(): OwnerCredentials | null {
   } catch {
     return null;
   }
+}
+
+function readEmergencyView() {
+  try {
+    const owner = readOwner();
+    return Boolean(owner && sessionStorage.getItem(EMERGENCY_VIEW_KEY) === owner.sessionId);
+  } catch { return false; }
+}
+
+function rememberEmergencyView(sessionId: string | null) {
+  try {
+    if (sessionId) sessionStorage.setItem(EMERGENCY_VIEW_KEY, sessionId);
+    else sessionStorage.removeItem(EMERGENCY_VIEW_KEY);
+  } catch { /* The selected view still works for this open page. */ }
 }
 
 function vibrate(pattern: number | number[]) {
@@ -261,8 +276,9 @@ function StudentApp() {
   const [copyNote, setCopyNote] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
-  const [emergencyLanding, setEmergencyLanding] = useState(false);
+  const [emergencyLanding, setEmergencyLanding] = useState(readEmergencyView);
   const [emergencyBusy, setEmergencyBusy] = useState(false);
+  const [locationAttempt, setLocationAttempt] = useState(0);
   const emergencyOwner = useRef(credentials);
   emergencyOwner.current = credentials;
   const now = useNow();
@@ -277,6 +293,7 @@ function StudentApp() {
       emergencyOwner.current = owner;
       try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(owner)); }
       catch { setLocationError('Browser storage is unavailable. Keep this page open to retain your session.'); }
+      rememberEmergencyView(owner.sessionId);
       lastAcceptedFixAt.current = 0;
       setCredentials(owner);
       setSnapshot(initial);
@@ -285,7 +302,22 @@ function StudentApp() {
   }));
   const emergencyRequest = async () => {
     setEmergencyLanding(true);
+    rememberEmergencyView(emergencyOwner.current?.sessionId ?? null);
     await emergencyActions.send();
+  };
+  const openEmergency = () => {
+    rememberEmergencyView(credentials?.sessionId ?? null);
+    setEmergencyLanding(true);
+    window.scrollTo(0, 0);
+  };
+  const viewWalk = () => {
+    rememberEmergencyView(null);
+    setEmergencyLanding(false);
+    window.scrollTo(0, 0);
+  };
+  const retryLocation = async () => {
+    setLocationError(null);
+    setLocationAttempt(attempt => attempt + 1);
   };
 
 
@@ -360,7 +392,7 @@ function StudentApp() {
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('online', refresh);
     };
-  }, [credentials, trackingActive]);
+  }, [credentials, trackingActive, locationAttempt]);
 
   useEffect(() => {
     if (!credentials || credentials.mode !== 'demo' || !snapshot || snapshot.status === 'ended') return;
@@ -377,6 +409,7 @@ function StudentApp() {
   const start = async (mode: 'live' | 'demo') => {
     if (startLock.current) return;
     startLock.current = true;
+    rememberEmergencyView(null);
     setEmergencyLanding(false);
     setBusy(mode); setError(null); setPollError(null); setLocationError(null);
     try {
@@ -417,12 +450,17 @@ function StudentApp() {
     finally { setBusy(null); }
   };
 
-  const end = async () => {
+  const stopSharing = async () => {
     if (!credentials) return;
     setBusy('end'); setError(null);
     try { const next = await endSession(credentials.sessionId, credentials.ownerToken); setSnapshot(previous => newerSnapshot(previous, next)); }
+    finally { setBusy(null); }
+  };
+
+  const end = async () => {
+    try { await stopSharing(); }
     catch (cause) { setError((cause as Error).message); }
-    finally { setBusy(null); setConfirmEnd(false); }
+    finally { setConfirmEnd(false); }
   };
 
   const shareUrl = credentials ? `${window.location.origin}/watch/${encodeURIComponent(credentials.sessionId)}#${encodeURIComponent(credentials.guardianToken)}` : '';
@@ -436,31 +474,47 @@ function StudentApp() {
     }
     await copy();
   };
-  const resetToStart = () => { setEmergencyLanding(false); setEmergencyBusy(false); sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); setOwnerInvalid(false); setPollError(null); window.scrollTo(0, 0); };
+  const resetToStart = () => { rememberEmergencyView(null); setEmergencyLanding(false); setEmergencyBusy(false); sessionStorage.removeItem(STORAGE_KEY); setCredentials(null); setSnapshot(null); setError(null); setOwnerInvalid(false); setPollError(null); window.scrollTo(0, 0); };
 
   const ended = snapshot?.status === 'ended';
   const helpRequested = snapshot?.status === 'help_requested';
   const incident = snapshot?.incident ?? null;
   const showQuietStatus = Boolean(incident && (helpRequested || incident.status !== 'resolved'));
 
-  if (!credentials || (emergencyLanding && !ended && !ownerInvalid)) {
+  // Restore the server-confirmed request before deciding which controls to show.
+  if (credentials && (!snapshot || ownerInvalid)) {
+    return <div className="app">
+      <header className="app-bar"><Brand /></header>
+      <main className="app-body"><div className="restore-card"><span className="round-icon"><Icon name={ownerInvalid ? 'alert' : 'signal'} size={22} /></span><h1>{ownerInvalid ? 'Walk unavailable.' : 'Reconnecting…'}</h1><p>{ownerInvalid ? 'This saved walk could not be opened.' : pollError ? `Still trying: ${pollError}` : 'Checking your walk. Your browser may ask for location again.'}</p>{ownerInvalid && <button className="dark-button" onClick={resetToStart}>Back to start <Icon name="arrow" size={17} /></button>}</div></main>
+    </div>;
+  }
+
+  if (!credentials || (emergencyLanding && (!ended || incident))) {
     return <div className="site-shell landing-site">
     <header className="topbar"><div className="brand-lockup"><Brand /><span className="brand-descriptor">YOUR QUIET CONNECTION</span></div><div className="topbar-right"><WalkGuide /><span className="campus-tag"><span /> BUILT AT UIUC</span></div></header>
     <main className="landing">
       <h1 className="sr-only">Emergency help and walk companion</h1>
-      <EmergencyHold onRequest={emergencyRequest} onRetract={emergencyActions.retract} onBusyChange={setEmergencyBusy} disabled={busy !== null} />
-      {credentials && <div className="emergency-session" role="status">
-        <span>{credentials.mode === 'demo' ? 'SIMULATED WALK · DEMO' : 'LIVE SESSION'}</span>
-        {incident && <strong>{incident.reference} · {incident.status === 'new' ? 'Awaiting dispatcher' : incident.status}</strong>}
-        <p>{snapshot?.location ? 'Location sharing is active. Keep this page open.' : 'No location received yet. Allow location access so responders can find you.'}</p>
-        {(locationError || pollError) && <p className="hold-error">{locationError || pollError}</p>}
-      </div>}
+      <EmergencyHold onRequest={emergencyRequest} onRetract={emergencyActions.retract}
+        onRequestCancellation={emergencyActions.retract} onBusyChange={setEmergencyBusy}
+        snapshot={snapshot} now={now} locationError={locationError} pollError={pollError}
+        onRetryLocation={retryLocation} onShare={share} onStopSharing={() => setConfirmEnd(true)}
+        onReset={resetToStart} disabled={busy !== null} />
+      {confirmEnd && !ended && <section className="walk-shortcuts emergency-stop-confirm" aria-label="Confirm stopping location sharing">
+        <h2>Stop sharing your location?</h2>
+        <p>Your emergency request will stay open. The dispatcher keeps your last known location until they close it.</p>
+        <div className="walk-shortcut-buttons">
+          <button className="primary-button" disabled={busy !== null} onClick={() => void end()}>{busy === 'end' ? 'Stopping…' : 'Stop sharing'}</button>
+          <button className="secondary-button" disabled={busy !== null} onClick={() => setConfirmEnd(false)}>Keep sharing</button>
+        </div>
+      </section>}
       <section className="walk-shortcuts" aria-label="Start a walk">
-        {credentials ? <button className="primary-button" disabled={emergencyBusy} onClick={() => setEmergencyLanding(false)}>View walk & guardian link <Icon name="arrow" size={18} /></button> : <div className="walk-shortcut-buttons">
+        {credentials ? <button className="secondary-button" disabled={busy !== null || emergencyBusy} onClick={viewWalk}>{ended ? 'View ended walk' : 'View walk & guardian link'} <Icon name="arrow" size={18} /></button> : <div className="walk-shortcut-buttons">
           <button className="primary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('live')}><span><Icon name="pin" size={18} />{busy === 'live' ? 'Finding your location…' : 'Start a live walk'}</span><Icon name="arrow" size={18} /></button>
           <button className="secondary-button" disabled={busy !== null || emergencyBusy} onClick={() => void start('demo')}><span>{busy === 'demo' ? 'Starting demo…' : 'Try a simulated walk'}</span><Icon name="arrow" size={18} /></button>
         </div>}
-        <p>Share your walk with someone you trust.</p>
+        {!credentials && <p>Share your walk with someone you trust.</p>}
+        {copyNote && <p role="status">{copyNote}</p>}
+        {showLink && <input className="link-input" aria-label="Guardian link" readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}
         {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
       </section>
     </main>
@@ -468,18 +522,13 @@ function StudentApp() {
     </div>;
   }
 
-  if (!snapshot) {
-    return <div className="app">
-      <header className="app-bar"><Brand /></header>
-      <main className="app-body"><div className="restore-card"><span className="round-icon"><Icon name={ownerInvalid ? 'alert' : 'signal'} size={22} /></span><h1>{ownerInvalid ? 'Walk unavailable.' : 'Reconnecting…'}</h1><p>{ownerInvalid ? 'This saved walk could not be opened.' : pollError ? `Still trying: ${pollError}` : 'Checking your walk. Your browser may ask for location again.'}</p>{ownerInvalid && <button className="dark-button" onClick={resetToStart}>Back to start <Icon name="arrow" size={17} /></button>}</div></main>
-    </div>;
-  }
+  if (!snapshot) return null;
 
   if (ended) {
     return <div className="app">
       <header className="app-bar"><Brand /></header>
       <main className="app-body">
-        <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><h1>{snapshot.endedReason === 'expired' ? 'Walk timed out.' : 'Walk ended.'}</h1><p>Your location is no longer shared, and your saved details were deleted.</p><button className="dark-button" onClick={resetToStart}>Start another walk <Icon name="arrow" size={17} /></button></div>
+        <div className="restore-card"><span className="round-icon"><Icon name={snapshot.endedReason === 'expired' ? 'clock' : 'check'} size={22} /></span><h1>{snapshot.endedReason === 'expired' ? 'Walk timed out.' : 'Walk ended.'}</h1><p>{incident && incident.status !== 'resolved' ? 'Live location updates have stopped. Your request is still open; the dispatcher keeps your last known location until they close it.' : 'Your location is no longer shared, and your saved details were deleted.'}</p>{incident && <button className="dark-button" onClick={openEmergency}>View request status <Icon name="arrow" size={17} /></button>}<button className="dark-button" onClick={resetToStart}>Start another walk <Icon name="arrow" size={17} /></button></div>
       </main>
     </div>;
   }
@@ -496,7 +545,7 @@ function StudentApp() {
       {(pollError || locationError) && <div className="quiet-warning" role="status"><Icon name="alert" size={15} />Updates delayed: {locationError || pollError}</div>}
       {error && <div className="inline-error" role="alert"><Icon name="alert" size={17} />{error}</div>}
       <section className="signal-card">
-        {!helpRequested && <button className="end-walk" onClick={() => setEmergencyLanding(true)}><Icon name="alert" size={20} />Open emergency controls</button>}
+        <button className="end-walk" onClick={openEmergency}><Icon name="alert" size={20} />{incident ? 'View request status' : 'Open emergency controls'}</button>
         {helpRequested ? null : <HoldToCheckIn onSignal={() => void help()} disabled={busy === 'help'} />}
         {showQuietStatus && incident && <QuietStatus incident={incident} helpActive={helpRequested} onCancel={() => void retract()} cancelling={busy === 'retract'} />}
       </section>

@@ -215,7 +215,7 @@ const PUSH_SUBSCRIPTION = {
 
 test('a help press opens a Campus Safety incident the dispatcher can acknowledge, dispatch, and close', async (t) => {
   const recorder = recordingNotifier();
-  const { base, clock } = setup(t, recorder);
+  const { base, clock, dbPath } = setup(t, recorder);
   const created = (await json<CreateSessionResponse>(base, '/api/sessions', { method: 'POST', body: { mode: 'live' } })).body;
   const path = `/api/sessions/${created.sessionId}`;
   const owner = created.ownerToken;
@@ -233,6 +233,7 @@ test('a help press opens a Campus Safety incident the dispatcher can acknowledge
 
   const helped = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: owner })).body;
   assert.equal(helped.incident?.status, 'new');
+  assert.equal(helped.incident?.walkerCancelledAt, null);
   assert.match(helped.incident!.reference, /^GS-[0-9A-F]{6}$/);
   await json(base, `${path}/help`, { method: 'POST', token: owner });
 
@@ -279,10 +280,27 @@ test('a help press opens a Campus Safety incident the dispatcher can acknowledge
 
   const cancelled = (await json<SessionSnapshot>(base, `${path}/help/retract`, { method: 'POST', token: owner })).body;
   assert.equal(cancelled.incident?.status, 'responding');
+  assert.equal(cancelled.incident?.walkerCancelledAt, new Date(clock.now).toISOString());
+  const guardianCancelled = (await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body;
+  assert.equal(guardianCancelled.incident?.walkerCancelledAt, cancelled.incident?.walkerCancelledAt);
+  assert.equal(guardianCancelled.incident?.status, 'responding');
+  const guardianPublic = JSON.stringify(guardianCancelled);
+  assert.equal(guardianPublic.includes('Officer en route via Wright St.'), false);
+  assert.equal(guardianPublic.includes('Walking home from Grainger to ISR.'), false);
+  assert.equal('events' in guardianCancelled.incident!, false);
+  const restoredStore = new SessionStore(dbPath, () => clock.now);
+  try {
+    assert.equal(restoredStore.read(created.sessionId, owner).incident?.walkerCancelledAt, cancelled.incident?.walkerCancelledAt);
+    assert.equal(restoredStore.read(created.sessionId, created.guardianToken).incident?.walkerCancelledAt, cancelled.incident?.walkerCancelledAt);
+  } finally {
+    restoredStore.close();
+  }
   const afterCancel = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
   assert.ok(afterCancel.walkerCancelledAt);
   const resent = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: owner })).body;
   assert.equal(resent.incident?.id, incident.id);
+  assert.equal(resent.incident?.walkerCancelledAt, null);
+  assert.equal((await json<SessionSnapshot>(base, path, { token: created.guardianToken })).body.incident?.walkerCancelledAt, null);
   const afterResend = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents[0];
   assert.equal(afterResend.walkerCancelledAt, null);
   assert.equal(afterResend.events.at(-1)?.kind, 'walker_resent');
@@ -297,11 +315,19 @@ test('a help press opens a Campus Safety incident the dispatcher can acknowledge
   assert.equal((await dispatch(`${id}/respond`, { unit: 'Patrol 1' })).status, 409);
   assert.equal((await dispatch('/not-an-id/acknowledge', {})).status, 404);
 
-  // A later help press opens a fresh incident.
-  await json(base, `${path}/help/retract`, { method: 'POST', token: owner });
+  // The resolved incident cannot absorb a new help signal on the same walk.
+  const resolvedPublic = (await json<SessionSnapshot>(base, path, { token: owner })).body;
+  assert.equal(resolvedPublic.incident?.id, incident.id);
   const second = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: owner })).body;
   assert.notEqual(second.incident?.id, incident.id);
   assert.equal(second.incident?.status, 'new');
+  assert.equal(second.status, 'help_requested');
+  assert.equal(second.location?.latitude, location.latitude);
+  assert.ok(Date.parse(second.updatedAt) > Date.parse(resolvedPublic.updatedAt));
+  const repeatedSecond = (await json<SessionSnapshot>(base, `${path}/help`, { method: 'POST', token: owner })).body;
+  assert.equal(repeatedSecond.incident?.id, second.incident?.id);
+  assert.equal(repeatedSecond.updatedAt, second.updatedAt);
+  assert.equal((await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents.length, 2);
 });
 
 test('ending or expiring a walk keeps the last known location for an open incident until it is closed', async (t) => {
@@ -315,9 +341,13 @@ test('ending or expiring a walk keeps the last known location for an open incide
     return { ...created, path };
   };
   const ended = await start();
+  await json(base, `${ended.path}/help/retract`, { method: 'POST', token: ended.ownerToken });
   const endedSnapshot = (await json<SessionSnapshot>(base, `${ended.path}/end`, { method: 'POST', token: ended.ownerToken })).body;
   assert.equal(endedSnapshot.location, null);
   assert.equal(endedSnapshot.descriptionProvided, false);
+  assert.ok(endedSnapshot.incident?.walkerCancelledAt);
+  assert.equal((await json<SessionSnapshot>(base, ended.path, { token: ended.guardianToken })).body.incident?.walkerCancelledAt,
+    endedSnapshot.incident?.walkerCancelledAt);
   let incidents = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents;
   assert.equal(incidents[0].sessionState, 'ended');
   assert.equal(incidents[0].location?.latitude, 40.11);
@@ -326,17 +356,23 @@ test('ending or expiring a walk keeps the last known location for an open incide
 
   clock.now += 1000;
   const expiring = await start();
+  await json(base, `${expiring.path}/help/retract`, { method: 'POST', token: expiring.ownerToken });
   clock.now += 2 * 60 * 60 * 1000;
   assert.equal(store.expireDue(), 1);
   incidents = (await json<DispatchIncidentList>(base, '/api/dispatch/incidents', { token: DISPATCH_CODE })).body.incidents;
   const expired = incidents.find((incident) => incident.sessionState === 'expired')!;
   assert.equal(expired.location?.longitude, -88.23);
   assert.equal(expired.events.at(-1)?.kind, 'session_expired');
+  const expiredPublic = (await json<SessionSnapshot>(base, expiring.path, { token: expiring.guardianToken })).body;
+  assert.equal(expiredPublic.status, 'ended');
+  assert.equal(expiredPublic.endedReason, 'expired');
+  assert.equal(expiredPublic.incident?.walkerCancelledAt, expired.walkerCancelledAt);
   assert.equal((await json(base, `${expiring.path}/push-subscriptions`, { method: 'POST', token: expiring.guardianToken, body: PUSH_SUBSCRIPTION })).status, 409);
 
   const closed = (await json<DispatchIncident>(base, `/api/dispatch/incidents/${expired.id}/resolve`, { method: 'POST', token: DISPATCH_CODE, body: { outcome: 'no_threat_on_scene' } })).body;
   assert.equal(closed.location, null);
   assert.equal(closed.walkerDescription, null);
+  assert.equal((await json<SessionSnapshot>(base, expiring.path, { token: expiring.guardianToken })).body.incident?.status, 'resolved');
   assert.equal((await json(base, `${expiring.path}/guardian-notes`, { method: 'POST', token: expiring.guardianToken, body: { text: 'late note' } })).status, 409);
 });
 

@@ -1,7 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { createEmergencyFlow, HOLD_MS, INITIAL_EMERGENCY_STATE } from './hold-progress';
+import type { IncidentSummary, SessionSnapshot } from './api-types';
+import { EmergencyStatus } from './EmergencyStatus';
 
-export function EmergencyHold({ onRequest, onRetract, onBusyChange, disabled = false }: {
+export function emergencySurface(phase: string, incident: IncidentSummary | null, suppressedIncidentId: string | null): 'hold' | 'status' {
+  if (!incident || incident.id === suppressedIncidentId) return 'hold';
+  if (phase === 'emergency-holding' || phase === 'sending' || phase === 'cancel-ready' || phase === 'cancel-holding' || phase === 'cancel-sending') return 'hold';
+  return 'status';
+}
+
+export function EmergencyHold({ snapshot, now, locationError, pollError, onRetryLocation, onShare, onStopSharing, onRequestCancellation, onReset, onRequest, onRetract, onBusyChange, disabled = false }: {
+  snapshot: SessionSnapshot | null;
+  now: number;
+  locationError: string | null;
+  pollError: string | null;
+  onRetryLocation: () => Promise<void>;
+  onShare?: () => void | Promise<void>;
+  onStopSharing?: () => void | Promise<void>;
+  onRequestCancellation?: () => Promise<void>;
+  onReset?: () => void;
   onRequest: () => Promise<void>;
   onRetract: () => Promise<void>;
   onBusyChange: (busy: boolean) => void;
@@ -10,6 +27,8 @@ export function EmergencyHold({ onRequest, onRetract, onBusyChange, disabled = f
   const callbacks = useRef({ onRequest, onRetract, onBusyChange });
   callbacks.current = { onRequest, onRetract, onBusyChange };
   const [{ progress, phase, remaining, error }, setState] = useState(INITIAL_EMERGENCY_STATE);
+  const [suppressedIncidentId, setSuppressedIncidentId] = useState<string | null>(null);
+  const incident = snapshot?.incident ?? null;
   const cancelling = phase === 'cancel-ready' || phase === 'cancel-holding' || phase === 'cancel-sending' || phase === 'cancel-error';
   const holding = phase === 'emergency-holding' || phase === 'cancel-holding';
   const pending = phase === 'sending' || phase === 'cancel-sending';
@@ -45,6 +64,24 @@ export function EmergencyHold({ onRequest, onRetract, onBusyChange, disabled = f
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [hold]);
+
+  if (incident && emergencySurface(phase, incident, suppressedIncidentId) === 'status') {
+    return <EmergencyStatus
+      snapshot={snapshot!}
+      now={now}
+      locationError={locationError}
+      pollError={pollError}
+      cancellationError={phase === 'cancel-error' ? error ?? 'Cancellation was not confirmed. Please try again.' : null}
+      onRetryLocation={onRetryLocation}
+      onRequestCancellation={onRequestCancellation ?? onRetract}
+      onStopSharing={onStopSharing}
+      onShare={onShare}
+      onReset={onReset}
+      onSendAnotherSignal={incident.status === 'resolved' && snapshot?.status !== 'ended' ? () => { hold.reset(); setSuppressedIncidentId(incident.id); } : undefined}
+      onBusyChange={onBusyChange}
+      disabled={disabled}
+    />;
+  }
 
   return <section className="emergency-focus" aria-label="Emergency help">
     <button type="button" disabled={disabled || pending} aria-busy={pending} className={`emergency-orb ${holding ? 'holding' : phase} ${cancelling ? 'cancel-mode' : ''}`} aria-label={`${cancelling ? 'Cancel emergency help' : 'Emergency help'} — hold for 3 seconds`} aria-describedby="hold-instructions hold-status"

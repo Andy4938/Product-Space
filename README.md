@@ -78,6 +78,8 @@ The Vite development proxy targets port 3001. Change the proxy too if you change
 
 ## What is implemented
 
+- **Emergency confirmation:** after the server accepts a homepage emergency signal and the three-second undo window finishes, the large send button becomes a persistent status card. It shows delivery, dispatcher acknowledgement, recorded dispatch, and closure with its outcome. Restoring the tab checks the server before showing the saved request.
+- **Separate location and cancellation state:** the emergency card reports missing or delayed positions separately from successful signal delivery and offers a location retry. Cancellation stays pending while the incident is open. Stopping live location requires confirmation and leaves the request status visible; it does not close the incident. Private dispatcher notes are not shown to students.
 - Mobile-friendly student flow with explicit location consent, simulated demo, guardian link sharing, help request, help retraction while the walk continues, and session end.
 - Student and guardian maps with zoom controls, a moving marker, accuracy radius, capped movement trail, and delayed/stale location indicators. Location updates preserve the chosen zoom level.
 - A shared backend and SQLite persistence; browser storage is only used to resume the student's credentials within that tab.

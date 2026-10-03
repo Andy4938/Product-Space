@@ -54,3 +54,13 @@ Actual phone GPS and permission behavior were not exercised. There is no verifie
 - Initial location upload completes before continuous tracking starts; help/retraction no longer restarts the live GPS watcher.
 - Production build and all 14 tests pass. Local browser checks confirmed continuing simulated movement, guardian help/retraction, and the new freshness fields.
 - The reported two-phone Cloudflare delay has not been reproduced here. Actual phone GPS and tunnel latency still need a device retest; no fixed GPS update rate is promised.
+
+## Emergency receipt and status follow-up
+
+- Started from the latest GitHub main, `a1603ad`.
+- All 42 tests and the production build pass. The five rendered-status tests were rerun after refining the closed-incident location text and also pass.
+- Tests cover the three-second undo window, failed/unconfirmed sends, lost responses, cancellation failures, missing location, restored status, dispatcher stages, cancellation metadata, and a deliberate new signal after closure. Cancellation metadata persists without exposing private dispatcher notes.
+- Used an isolated localhost server with an in-memory database and silent notifications for browser checks. A simulated walk received fixture-driven incident and dispatcher transitions; actual hold timing was covered by the deterministic hold-flow tests.
+- Verified that delivery replaces the send button, acknowledgement and dispatch update automatically, cancellation remains pending through reload, stopping live location requires confirmation, the incident remains visible after stopping/reloading, and closure displays the recorded outcome.
+- Inspected the status view at a 390-pixel phone width and restored the normal viewport afterward. Closed the isolated preview and stopped its server after testing.
+- Actual phone GPS and external notification delivery were not exercised.

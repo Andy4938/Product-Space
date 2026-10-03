@@ -57,6 +57,12 @@ export function createEmergencyFlow(onChange: (state: EmergencyState) => void, c
     if (state.phase === 'emergency-holding' || state.phase === 'cancel-ready' || state.phase === 'cancel-holding') frame = clock.request(tick);
   };
   return {
+    reset() {
+      stopFrame();
+      generation++;
+      state = { ...INITIAL_EMERGENCY_STATE };
+      emit();
+    },
     begin() {
       if (state.phase === 'emergency-holding' || state.phase === 'cancel-holding' || state.phase === 'sending' || state.phase === 'cancel-sending') return false;
       stopFrame();
