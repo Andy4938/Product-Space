@@ -1,6 +1,6 @@
 # GhostSignal
 
-A mobile-first hackathon prototype for getting help **without making a scene**. Campus emergency phones mean running to a pole and making a call in plain view, which can make a tense situation worse. With GhostSignal, a student who notices someone following them presses and holds an ordinary-looking **Hold to check in** button. Their phone barely changes on screen, but Campus Safety receives a silent signal with their live location. Nobody calls or texts the student. Responders find them using the live location and an optional description of what they're wearing. Short vibrations tell the student when a dispatcher has seen the signal and when a responder is on the way.
+A mobile-first hackathon prototype for requesting help **without speaking or making a call**. The student holds **Emergency help** for three seconds and sees a clear delivery and response status. Their live location is shared with the prototype Campus Safety console and an optional trusted guardian. The student stays on one screen; maps are for the guardian and dispatcher. Preset messages and an optional clothing description help explain the situation without a conversation. Short vibrations accompany dispatcher acknowledgement and response updates.
 
 > Emergency buttons protect a location. Our system protects the person as they move.
 
@@ -33,7 +33,7 @@ The circular **Emergency help** button is connected to the existing incident sys
 
 After the server confirms receipt, the button turns yellow for a **3-second cancellation window**. Hold **Cancel** for 3 seconds to retract the request. The window pauses during the cancellation hold and resumes its remaining time if you release early. Success is shown only after the server confirms the cancellation; failed or uncertain requests can be retried. Retrying reuses the same session and incident. Cancellation updates the guardian and dispatcher but does not erase the incident or stop location sharing.
 
-Choose **View walk & guardian link** after the interaction to share the guardian link, configure optional alerts and responder details, or end the walk. During an existing walk, **Open emergency controls** brings up the same circular control. For a GPS-free demonstration, start a simulated walk first, then open emergency controls; the incident remains clearly labelled as a demo.
+Choose **Share guardian link** to open a dialog containing copy/share actions and a QR code. It never opens the student's own map or a second walk page. Location collection continues while the student keeps the page active. **Help responders find you** holds optional details, and **Stop sharing** asks for confirmation. A student can start sharing before requesting help, or request help directly from the homepage. For a GPS-free demonstration, start a simulated walk, then use the same emergency control; the incident remains clearly labelled as a demo.
 
 ### Running on a phone
 
@@ -41,11 +41,47 @@ A phone must reach the same frontend and backend through a **trusted HTTPS origi
 
 Keep the student page open and the screen unlocked. Browsers may suspend or throttle location work in background tabs or when the screen locks. Reliable background tracking is outside this web MVP.
 
-For a two-phone Cloudflare tunnel test, open the student page through the tunnel's HTTPS URL and share the guardian link generated there. Both phones must reach the same running server. After code changes, reload both phones; if the tunnel points to `npm start`, rebuild and restart that server first.
+For a two-phone test, the app can keep running locally on your **Windows PC or Mac** while a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) gives both phones a public HTTPS address. The phones can use different Wi-Fi networks or cellular data; they both connect through the tunnel to this one computer.
+
+Install `cloudflared` once on the computer that will run the app:
+
+- **Windows PowerShell:** `winget install --id Cloudflare.cloudflared --exact` ([WinGet package](https://github.com/microsoft/winget-pkgs/tree/master/manifests/c/Cloudflare/cloudflared)). Open a new terminal after installation. If WinGet is unavailable, use the installer from [Cloudflare's Windows downloads](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/#windows).
+- **Mac Terminal:** `brew install cloudflared` ([Cloudflare installation instructions](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/#macos)).
+
+From the project folder, run each command separately (requires Node.js 24 or newer):
+
+```sh
+npm install
+npm run build
+npm start
+```
+
+If PowerShell blocks `npm.ps1`, use `npm.cmd` in place of `npm`; changing the execution policy is unnecessary. Save the Campus Safety access code printed by the server if you want to test the dispatcher.
+
+Then:
+
+1. Leave the app terminal open. It serves the built frontend and API together on port 3001.
+2. In a second terminal, run `cloudflared tunnel --url http://localhost:3001`. Keep both terminals running.
+3. On the student's phone, open the printed `https://…trycloudflare.com` address and start a walk.
+4. Choose **Share guardian link**, then **Copy link** or share from your phone. You can also let your guardian scan the QR code with their phone. From the emergency status screen, the share action opens these same options.
+5. On the guardian's phone, open that **full private link**, including everything after `#`. It opens the guardian view directly. They do not need an account, to start another walk, or to run another copy of the app.
+
+Sharing the homepage address starts a separate student flow. Links created from `localhost` cannot open the computer's app on another phone; the sharing dialog explains this and hides its QR code. Open the student page through the Cloudflare address before starting and sharing a walk.
+
+Both phones must use the same tunnel and running server. A Quick Tunnel gets a new address when restarted, so open the new address and share a fresh guardian link. After code changes, rebuild, restart the server, and reload both phones. QR codes are generated in the browser; the private guardian link is never sent to a QR-code service.
+
+### Guardian versus dispatcher on the second phone
+
+| Receiving role | What Phone 2 opens | What it can do |
+| --- | --- | --- |
+| Trusted guardian | The private `/watch/…#…` link from Phone 1 | Follow that walk, see help and response updates, and send information to the dispatcher |
+| Test dispatcher | The same Cloudflare HTTPS address with `/dispatch` appended | Enter the server's access code, see incoming incidents and their locations, acknowledge, dispatch a unit, and close an incident |
+
+For your friend's two-phone emergency test, use the dispatcher option. On Phone 1, allow location access and hold **Emergency help** for three seconds, then let the cancellation window expire. On Phone 2, open the incident, choose **Acknowledge**, then **Dispatch unit**. Phone 1 should update its status automatically. Keep Phone 1 open and unlocked, both terminals running, and the hosting computer awake. Send the access code only to the teammate playing the dispatcher. These actions stay within the prototype; they do not summon real emergency services.
 
 The guardian checks for updates every second. New device positions are uploaded with a minimum 1.1-second gap after the previous upload completes; a slow connection keeps only the newest waiting position. If the browser's location watch stops providing fresh positions for ten seconds, the visible student page requests a fresh fix. The browser still controls how quickly and accurately a position is available; these intervals are not a GPS delivery guarantee.
 
-To diagnose delays, compare **Captured**, **Location received**, and **View refreshed** on the guardian. A recent view refresh with an old received time means the server has not received a new position; check the student's location or connection warning. An old view refresh indicates the guardian's connection is behind. Capture timestamps always remain the device's original timestamps.
+To diagnose delays, compare **Updated** with **View refreshed** on the guardian. A recent view refresh with an old location means no fresh position has arrived; check the student's location or connection warning. An old view refresh indicates the guardian's connection is behind. Capture timestamps always remain the device's original timestamps.
 
 Hosting is intentionally undecided; this version runs locally. Choose a host with persistent storage and HTTPS before demonstrating real GPS across devices.
 
@@ -81,23 +117,25 @@ The Vite development proxy targets port 3001. Change the proxy too if you change
 - **Emergency confirmation:** after the server accepts a homepage emergency signal and the three-second undo window finishes, the large send button becomes a persistent status card. It shows delivery, dispatcher acknowledgement, recorded dispatch, and closure with its outcome. Restoring the tab checks the server before showing the saved request.
 - **Separate location and cancellation state:** the emergency card reports missing or delayed positions separately from successful signal delivery and offers a location retry. Cancellation stays pending while the incident is open. Stopping live location requires confirmation and leaves the request status visible; it does not close the incident. Private dispatcher notes are not shown to students.
 - Mobile-friendly student flow with explicit location consent, simulated demo, guardian link sharing, help request, help retraction while the walk continues, and session end.
-- Student and guardian maps with zoom controls, a moving marker, accuracy radius, capped movement trail, and delayed/stale location indicators. Location updates preserve the chosen zoom level.
+- Guardian and dispatcher maps with zoom controls, a moving marker, accuracy radius, capped movement trail, and delayed/stale location indicators. Location updates preserve the chosen zoom level. The student sees a compact sharing status instead of a map.
 - A shared backend and SQLite persistence; browser storage is only used to resume the student's credentials within that tab.
-- Separate random owner and guardian credentials. The guardian credential allows viewing only and travels in the URL fragment; API requests use an Authorization header.
+- Separate random owner and guardian credentials. The guardian credential allows viewing, sending guardian notes, and registering alerts for that session, and travels in the URL fragment; API requests use an Authorization header.
 - A fixed two-hour session lifetime. Ended and expired sessions remove coordinates and trails from session state and reject further location writes.
-- **Discreet trigger:** a neutral **Hold to check in** control that needs a press of about two seconds, so it isn't triggered by accident in a pocket. It opens an incident with a reference such as `GS-4F2A9C`. After the signal, the walker's screen keeps its normal colors and shows one low-key line (for example, "Checked in · seen"). Full details stay folded until the walker taps them. Status changes arrive as vibration patterns: one buzz when a dispatcher has seen it, two buzzes when a responder is on the way.
+- **One student screen:** a deliberate three-second emergency hold opens an incident with a reference such as `GS-4F2A9C`. After the cancellation window, the same screen reports delivery, acknowledgement, and response. Guardian sharing opens only a private-link dialog. The three-second cancellation behavior, presets, location retries, and status vibrations remain available without an alternate walk view.
 - **Campus Safety console (`/dispatch`):** a dispatcher console protected by a shared access code. It shows:
   - A queue of open signals, ordered so unacknowledged signals come first, each with a running timer, a nearby campus landmark, location freshness, and flags such as walker cancelled, walk ended, or demo.
   - A live map with every open signal. New signals pulse; the selected signal shows its trail and accuracy radius.
   - An incident panel with the live location, an approximate description relative to a campus landmark, copyable coordinates, accuracy, movement over the last minute, the walker's optional description of what they're wearing, notes from the guardian, and whether the guardian was notified. A banner reminds the dispatcher not to call or text the walker.
   - A workflow: **Acknowledge** → **Dispatch unit** → **Close with outcome** (each outcome is something a responder can confirm in person: escorted to safety, no threat on scene, accidental and confirmed in person, walker reached safety, unable to locate, escalated to police), plus notes and a full timeline.
   - A repeating alarm sound, a tab-title count, and a browser notification until each new signal is acknowledged.
+- **Phone dispatcher navigation:** switch between **Signals**, **Details**, and **Map**. Selecting a signal opens its response details without scrolling past a large map. Alert sound can be muted, browser notifications are explicitly enabled, and connection errors provide a retry action. Desktop shows the three panels together.
+- **Guardian priorities:** the map and location freshness appear before optional notification setup. Notification copy reflects whether alerts are enabled. Connection retry remains available after sharing ends, and incident status remains visible through closure even when the location has been removed.
 - **Never contact the walker:** the guardian page, push notifications, and texts all tell the guardian not to call or text the walker. The guardian sees the full Campus Safety tracker and can **Share what you know** (destination, clothing, companions); this goes to the dispatcher, not the walker. If a cancellation or an ended walk may have been coerced, dispatchers are told to verify in person.
 - **Location after a walk ends:** if a walk ends or expires while an incident is open, Campus Safety keeps the last known location and description. Closing the incident removes Campus Safety's access to both.
 - **Guardian push notifications:** **Turn on notifications** on the guardian page registers a service worker for Web Push. The guardian is notified when help is requested or cancelled and when Campus Safety acknowledges, dispatches, or closes, even with the page closed. Tapping a notification reopens the guardian link.
 - **Guardian text alerts:** optional texts for the same events through Twilio. Without Twilio keys, these become labeled console messages. Each session can send at most ten texts.
 - **Help responders find you:** a folded section where the student can describe what they're wearing and add a guardian phone number for texts. The app never asks for the student's phone number, because calling them could be dangerous. Everything is deleted when the walk ends.
-- **Mobile app layout:** the walker and guardian screens are a single phone-width column with a sticky app bar, a map, folding sections, 48 px or larger touch targets, safe-area padding, and the native share sheet for the guardian link. On desktop they appear in a phone-sized frame. The dispatch console stays a desktop control-room layout.
+- **Mobile app layout:** the student has one help and sharing screen, with optional details folded away. The guardian has a map and response updates. Copy/share controls and a local QR work without an account; layouts wrap across all four interface languages. Dispatch adapts its three desktop panels into separate phone views.
 - **Text-only guardian view:** an accessible view without map tiles for screen-reader, low-vision, and low-bandwidth use.
 - Location validation, monotonic timestamps, bounded update frequency, no-store API responses, and a session-creation rate limit.
 
@@ -105,7 +143,7 @@ The Vite development proxy targets port 3001. Change the proxy too if you change
 
 Open **Settings** on the walker or guardian page to choose English, Spanish, Simplified Chinese, or Hindi. The choice is saved on that device. Switching languages preserves the current walk, location tracking, and selected preset message.
 
-Before sending a help signal, optionally select one of four messages: “I think someone is following me,” “I cannot speak right now,” “I need medical help,” or “Please send someone to meet me.” Selecting alone does not send anything. The selected message is attached to the confirmed help request. During an active request, select a message and tap **Send message** to add an update. Confirmed messages appear on the walker, guardian, and dispatcher screens.
+Before sending a help signal, optionally select one of four messages: “I think someone is following me,” “I cannot speak right now,” “I need medical help,” or “Please send someone to meet me.” Selecting alone does not send anything. The selected message is attached to the confirmed help request. During an active request, select a message and tap **Send message** to add an update. Confirmed messages appear on the walker, guardian, and dispatcher screens. Each dispatcher queue item shows a red message icon and unread count for new student messages or guardian notes. Opening that incident clears its badge on that dispatcher tab; a later message brings the badge back. Background polling does not mark messages read.
 
 Messages use stable IDs so guardians see the same meaning in their chosen language. The dispatcher console, push/SMS notifications, and freeform notes remain in their original language. This feature does not automatically translate conversations. The latest 20 messages are displayed per incident; duplicate retries are deduplicated, and new messages are limited to one every two seconds. Messages cannot be sent after cancellation, closure, or the end of a walk.
 

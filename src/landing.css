@@ -427,3 +427,32 @@
   .landing-site .emergency-milestones li { min-height: 43px; }
   .landing-site .footer { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
 }
+
+.landing-site .student-demo-banner, .landing-site .student-walk-summary, .landing-site .student-responder-fold, .landing-site .student-complete, .landing-site .student-home-error { width: min(620px, 100%); }
+.landing-site .student-demo-banner { margin: 0; }
+.landing-site .student-walk-summary { padding: 18px 20px; border: 1px solid #9fbbe245; border-radius: 14px; background: #152740; color: #e8f2fb; }
+.landing-site .student-walk-summary-head { display: flex; align-items: center; gap: 9px; }
+.landing-site .student-walk-summary-head strong { font-size: 14px; }
+.landing-site .student-walk-summary-head > span:last-child { margin-left: auto; color: #a9bfd4; font-size: 12px; }
+.landing-site .student-location-health { margin: 13px 0 0; font-size: 16px; font-weight: 650; line-height: 1.4; }
+.landing-site .student-location-health.delayed, .landing-site .student-location-health.stale, .landing-site .student-location-health.waiting { color: #f0cf9b; }
+.landing-site .student-location-detail, .landing-site .student-page-open-note { margin: 5px 0 0; color: #9fb4c8; font-size: 11px; line-height: 1.5; }
+.landing-site .student-location-error { margin: 10px 0 0; color: #ffb6a9; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.landing-site .student-location-retry { min-height: 44px; margin-top: 10px; padding: 9px 13px; border: 1px solid #a7cbe291; border-radius: 8px; background: #204263; color: #e5f5fb; font-size: 12px; font-weight: 700; }
+.landing-site .student-walk-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 15px; }
+.landing-site .student-walk-actions button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 47px; padding: 10px; border-radius: 9px; font-size: 12px; font-weight: 750; line-height: 1.3; }
+.landing-site .student-share-button { border: 1px solid #b4d5f0; background: #bddcf3; color: #183449; }
+.landing-site .student-stop-button { border: 1px solid #8da9c582; background: #243b59; color: #e0edf9; }
+.landing-site .student-page-open-note { margin-top: 12px; }
+.landing-site .student-responder-fold .app-fold { border-color: #a9c1dd50; }
+.landing-site .student-complete { padding: 27px; border: 1px solid #a9c1dd4a; border-radius: 17px; background: #172940; text-align: center; color: #e8f2fb; }
+.landing-site .student-complete .round-icon { margin: 0 auto 14px; }
+.landing-site .student-complete h2 { margin: 0 0 10px; font-size: clamp(27px, 5vw, 36px); font-weight: 600; }
+.landing-site .student-complete p { margin: 0; color: #b2c3d5; font-size: 13px; line-height: 1.5; }
+.landing-site .student-complete .primary-button { width: min(320px, 100%); margin: 20px auto 0; }
+.landing-site .student-home-error { margin: 0; }
+@media (max-width: 480px) {
+  .landing-site .student-walk-summary { padding: 15px; }
+  .landing-site .student-walk-actions { grid-template-columns: 1fr; }
+  .landing-site .student-complete { padding: 22px 17px; }
+}

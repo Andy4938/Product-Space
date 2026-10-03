@@ -15,9 +15,9 @@ Set up three windows before you start: the student page (phone-sized), the guard
 1. On the student page (phone-sized window), start the clearly labeled simulated walk. Open **Help responders find you** and enter "red jacket, black backpack."
 2. Open the guardian link and choose **Turn on notifications**. Explain that this replaces "hoping someone is watching a dashboard."
 3. Show the empty console: "Monitoring. No open signals."
-4. On the student page, **press and hold "Hold to check in."** Point out that the student's screen barely changes; someone looking over their shoulder sees "Checked in · delivered." Meanwhile, the console sounds an alarm and shows a pulsing incident with a running timer, a "near Illini Union" description, live location, and "Look for: red jacket, black backpack." The guardian's phone shows "Don't call or text them."
-5. On the guardian page, use **Share what you know** to send "Walking from Grainger to ISR." It appears on the dispatcher's screen.
-6. In the console, choose **Acknowledge**, then dispatch "Patrol 2." The student feels a vibration and their status line changes to "someone is on the way," without a call or text. Point out that a blue-light phone can't do this quietly.
+4. On the student page, **hold "Emergency help" for three seconds**, then let the cancellation window expire. The same page confirms receipt and shows dispatcher progress. The console sounds an enabled alarm and shows an incident with location and "Look for: red jacket, black backpack." The guardian's phone shows "Don't call or text them." The student's **Share guardian link** opens only the sharing dialog; it never opens a map of their own walk.
+5. On the guardian page, use **Share what you know** to send "Walking from Grainger to ISR." The incident shows a red unread-message badge in the dispatcher queue. Opening it clears the badge; a later student message or guardian note brings it back.
+6. In the console, choose **Acknowledge**, then dispatch "Patrol 2." The student feels a vibration and sees "Responder dispatched," without a call or text. Point out that a blue-light phone can't do this quietly.
 7. Show the marker and trail moving on the console while the student keeps walking.
 8. Close the incident with "Responder reached walker and escorted them to safety." Show that the console loses the location and description once the incident is closed.
 9. Show the safeguards: a cancelled signal stays open as "possibly coerced, verify in person," and ending the walk keeps the last known location for Campus Safety.
@@ -38,7 +38,8 @@ For a real walking demonstration, use a supported phone browser with location pe
 - A help request is shown as delivered to the server only after the server acknowledges it. Retry must be available when it fails.
 - Ended and expired sessions cannot accept more location updates. Remove their coordinates and movement trails.
 - The interface makes no unsupported claim that a person is watching or that help is on the way.
-- Check the student view at phone width and the guardian view at laptop width.
+- Check the student and guardian views at phone width. The student has no map or alternate walk view; sharing opens the private-link dialog and tracking continues. The guardian retains its map, including zoom controls.
+- On a phone, dispatcher Signals/Details/Map navigation works without sideways scrolling. Verify alert sound can be muted and manual connection retry does not reset the selected incident.
 - Test denied location permission, network interruption, page reload, session end, and session expiry.
 
 ## Team ownership for the remaining 24 hours

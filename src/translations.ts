@@ -1,5 +1,160 @@
 // Source text is the English fallback. Preset IDs are translated only for display.
 export const translations: Record<string, Record<'es' | 'zh-CN' | 'hi', string>> = {
+  "Walk sharing status": {
+    "es": "Estado de la ubicación compartida",
+    "zh-CN": "位置共享状态",
+    "hi": "लोकेशन शेयरिंग की स्थिति"
+  },
+  "Location sharing is on": {
+    "es": "Ubicación compartida activada",
+    "zh-CN": "位置共享已开启",
+    "hi": "लोकेशन शेयरिंग चालू है"
+  },
+  "Location received {age}": {
+    "es": "Ubicación recibida {age}",
+    "zh-CN": "位置接收于 {age}",
+    "hi": "लोकेशन मिली: {age}"
+  },
+  "This ends your walk and removes live location from the guardian link.": {
+    "es": "Esto finaliza tu caminata y deja de mostrar tu ubicación en vivo en el enlace de tu acompañante.",
+    "zh-CN": "这将结束步行，并停止通过守护链接共享实时位置。",
+    "hi": "इससे आपका सफ़र समाप्त हो जाएगा और गार्जियन लिंक से लाइव लोकेशन हट जाएगी।"
+  },
+  "Live sharing stopped": {
+    "es": "Ubicación en vivo detenida",
+    "zh-CN": "实时共享已停止",
+    "hi": "लाइव शेयरिंग बंद हो गई है"
+  },
+  "Heading to the last known location": {
+    "es": "En camino a la última ubicación conocida",
+    "zh-CN": "正在前往最后已知位置",
+    "hi": "अंतिम ज्ञात लोकेशन की ओर जा रहे हैं"
+  },
+  "Campus Safety saw the request.": {
+    "es": "Seguridad del campus vio la solicitud.",
+    "zh-CN": "校园安全人员已查看请求。",
+    "hi": "कैंपस सुरक्षा ने अनुरोध देख लिया है।"
+  },
+  "Campus Safety is notified. Live location is still being established or may be delayed.": {
+    "es": "Seguridad del campus recibió el aviso. La ubicación en vivo aún se está obteniendo o puede estar retrasada.",
+    "zh-CN": "校园安全控制台已收到通知，实时位置仍在获取中或可能存在延迟。",
+    "hi": "कैंपस सुरक्षा को सूचना मिल गई है। लाइव लोकेशन अभी प्राप्त की जा रही है या उसमें देरी हो सकती है।"
+  },
+  "Not seen by a dispatcher yet. If you believe they’re in immediate danger, call 911 yourself and share the last location you saw. Don’t call the walker.": {
+    "es": "Ningún operador la ha visto aún. Si crees que está en peligro inmediato, llama tú al 911 y comparte la última ubicación que viste. No llames a la persona que camina.",
+    "zh-CN": "调度员尚未查看。如果你认为对方正处于紧急危险中，请自行拨打 911，并提供你看到的最后位置。不要给步行者打电话。",
+    "hi": "डिस्पैचर ने अभी नहीं देखा है। यदि आपको लगता है कि वे तत्काल खतरे में हैं, तो स्वयं 911 पर कॉल करें और आखिरी देखी गई लोकेशन साझा करें। चलने वाले व्यक्ति को कॉल न करें।"
+  },
+  "Retry connection": {
+    "es": "Volver a conectar",
+    "zh-CN": "重新连接",
+    "hi": "फिर से कनेक्ट करें"
+  },
+  "Help notifications are on for this phone.": {
+    "es": "Las notificaciones de ayuda están activadas en este teléfono.",
+    "zh-CN": "此手机已开启求助通知。",
+    "hi": "इस फ़ोन पर मदद की सूचनाएँ चालू हैं।"
+  },
+  "Keep this page open for help updates on this phone.": {
+    "es": "Mantén esta página abierta para recibir actualizaciones de ayuda en este teléfono.",
+    "zh-CN": "请保持此页面打开，以在此手机上查看求助更新。",
+    "hi": "इस फ़ोन पर मदद के अपडेट पाने के लिए यह पेज खुला रखें।"
+  },
+  "Turn on notifications below to get help alerts on this phone.": {
+    "es": "Activa las notificaciones abajo para recibir alertas de ayuda en este teléfono.",
+    "zh-CN": "请在下方开启通知，以在此手机上接收求助提醒。",
+    "hi": "इस फ़ोन पर मदद के अलर्ट पाने के लिए नीचे सूचनाएँ चालू करें।"
+  },
+  "Turn on notifications here to receive help updates on this device.": {
+    "es": "Activa las notificaciones aquí para recibir actualizaciones de ayuda en este dispositivo.",
+    "zh-CN": "在此开启通知，以在本设备上接收求助更新。",
+    "hi": "इस डिवाइस पर मदद के अपडेट पाने के लिए यहाँ सूचनाएँ चालू करें।"
+  },
+  "Private link for another phone.": {
+    "es": "Enlace privado para otro teléfono.",
+    "zh-CN": "供另一部手机使用的私密链接。",
+    "hi": "दूसरे फ़ोन के लिए निजी लिंक।"
+  },
+  "Private guardian link": {
+    "es": "Enlace privado para tu acompañante",
+    "zh-CN": "私密守护链接",
+    "hi": "निजी गार्जियन लिंक"
+  },
+  "Copy link": {
+    "es": "Copiar enlace",
+    "zh-CN": "复制链接",
+    "hi": "लिंक कॉपी करें"
+  },
+  "Could not copy. Select the link above and copy it.": {
+    "es": "No se pudo copiar. Selecciona el enlace de arriba y cópialo.",
+    "zh-CN": "无法复制。请选中上方链接并复制。",
+    "hi": "कॉपी नहीं हो सका। ऊपर दिया लिंक चुनकर कॉपी करें।"
+  },
+  "Share with your phone": {
+    "es": "Compartir desde tu teléfono",
+    "zh-CN": "通过手机分享",
+    "hi": "अपने फ़ोन से शेयर करें"
+  },
+  "Preview on this device": {
+    "es": "Vista previa en este dispositivo",
+    "zh-CN": "在此设备上预览",
+    "hi": "इस डिवाइस पर पूर्वावलोकन करें"
+  },
+  "Open this full private link on your friend’s phone. No account or new walk is needed.": {
+    "es": "Abre este enlace privado completo en el teléfono de tu amigo. No necesita una cuenta ni iniciar otra caminata.",
+    "zh-CN": "请在朋友的手机上打开这个完整的私密链接，无需账号，也无需开始新的步行。",
+    "hi": "यह पूरा निजी लिंक अपने दोस्त के फ़ोन पर खोलें। किसी खाते या नए सफ़र की ज़रूरत नहीं है।"
+  },
+  "Anyone with this link can see your walk. Share it only with someone you trust.": {
+    "es": "Cualquier persona con este enlace puede ver tu caminata. Compártelo solo con alguien de confianza.",
+    "zh-CN": "持有此链接的人都能查看你的步行。请仅与信任的人分享。",
+    "hi": "इस लिंक वाला कोई भी व्यक्ति आपका सफ़र देख सकता है। इसे केवल किसी भरोसेमंद व्यक्ति से शेयर करें।"
+  },
+  "This localhost link works only on this device. Open GhostSignal from a public HTTPS address before sharing with another phone.": {
+    "es": "Este enlace de localhost solo funciona en este dispositivo. Abre GhostSignal desde una dirección HTTPS pública antes de compartirlo con otro teléfono.",
+    "zh-CN": "此 localhost 链接仅在本设备上有效。请先通过公共 HTTPS 地址打开 GhostSignal，再与另一部手机分享。",
+    "hi": "यह localhost लिंक केवल इसी डिवाइस पर काम करता है। दूसरे फ़ोन से शेयर करने से पहले GhostSignal को सार्वजनिक HTTPS पते से खोलें।"
+  },
+  "On a private network, both phones need the same Wi-Fi. Live GPS on the walker’s phone also needs HTTPS.": {
+    "es": "En una red privada, ambos teléfonos necesitan la misma red Wi-Fi. El GPS en vivo del teléfono de quien camina también necesita HTTPS.",
+    "zh-CN": "使用私有网络时，两部手机需连接同一 Wi-Fi。步行者手机的实时 GPS 还需要 HTTPS。",
+    "hi": "निजी नेटवर्क पर दोनों फ़ोन एक ही Wi-Fi से जुड़े होने चाहिए। चलने वाले के फ़ोन पर लाइव GPS के लिए HTTPS भी ज़रूरी है।"
+  },
+  "Live GPS on the walker’s phone needs HTTPS.": {
+    "es": "El GPS en vivo del teléfono de quien camina necesita HTTPS.",
+    "zh-CN": "步行者手机的实时 GPS 需要 HTTPS。",
+    "hi": "चलने वाले के फ़ोन पर लाइव GPS के लिए HTTPS ज़रूरी है।"
+  },
+  "Scan on another phone": {
+    "es": "Escanear con otro teléfono",
+    "zh-CN": "用另一部手机扫描",
+    "hi": "दूसरे फ़ोन से स्कैन करें"
+  },
+  "QR code unavailable. Copy the link instead.": {
+    "es": "Código QR no disponible. Copia el enlace.",
+    "zh-CN": "二维码不可用，请复制链接。",
+    "hi": "QR कोड उपलब्ध नहीं है। लिंक कॉपी करें।"
+  },
+  "Preparing QR code…": {
+    "es": "Preparando el código QR…",
+    "zh-CN": "正在生成二维码…",
+    "hi": "QR कोड तैयार हो रहा है…"
+  },
+  "Close guardian sharing": {
+    "es": "Cerrar opciones para compartir",
+    "zh-CN": "关闭守护分享",
+    "hi": "गार्जियन शेयरिंग बंद करें"
+  },
+  "Friend’s phone link": {
+    "es": "Enlace para el teléfono de tu amigo",
+    "zh-CN": "发送到朋友手机的链接",
+    "hi": "दोस्त के फ़ोन के लिए लिंक"
+  },
+  "Sharing unavailable. Copy the link instead.": {
+    "es": "No se puede compartir. Copia el enlace.",
+    "zh-CN": "无法分享，请复制链接。",
+    "hi": "शेयर करना उपलब्ध नहीं है। लिंक कॉपी करें।"
+  },
   "How it works": {
     "es": "Cómo funciona",
     "zh-CN": "使用说明",

@@ -1,0 +1,49 @@
+.dispatch-login-hint { font-size: 13px; padding-top: 12px; border-top: 1px solid var(--d-line); }
+.dispatch-shell { min-width: 0; }
+.dispatch-top-right { min-width: 0; }
+.dispatch-sync.pending i { background: var(--d-amber); box-shadow: none; }
+.dispatch-error { flex-wrap: wrap; }
+.dispatch-error > span { flex: 1; min-width: 180px; }
+.dispatch-mobile-nav { display: none; }
+.dispatch-message-badge { display: inline-flex; align-items: center; gap: 5px; margin: 9px 0 2px; padding: 5px 9px; border: 1px solid #ff8e99; border-radius: 999px; background: #a71930; color: #fff; font-size: 12px; line-height: 1.4; font-weight: 650; }
+.dispatch-message-badge svg { flex: none; }
+.dispatch-unread-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: #ff586e; box-shadow: 0 0 0 2px #ff586e25; }
+.dispatch-alert-options { padding: 14px 16px; border-top: 1px solid var(--d-line); }
+.dispatch-alert-options p { margin: 9px 0 0; font-size: 12px; line-height: 1.5; color: var(--d-muted); }
+.dispatch-map-empty { position: absolute; z-index: 500; top: 16px; left: 16px; right: 16px; padding: 12px 16px; border: 1px solid var(--d-line); border-radius: 10px; background: var(--d-panel); color: var(--d-text); text-align: center; box-shadow: 0 4px 18px #0002; pointer-events: none; }
+.dispatch-field { min-width: 0; }
+.dispatch-panel { overflow-wrap: anywhere; }
+.dispatch-panel:focus { outline: none; }
+.dispatch-field select { text-overflow: ellipsis; }
+.dispatch-ghost:disabled { opacity: .55; cursor: wait; }
+.dispatch-feedback { padding: 10px 14px; border: 1px solid var(--d-line); border-radius: 8px; margin: 14px 20px; color: #a5e7cb; background: #53b88f12; line-height: 1.5; }
+.dispatch-next-step { margin: 0 0 12px; color: var(--d-muted); line-height: 1.5; }
+@media (max-width: 760px) {
+  .dispatch-shell { min-height: 100svh; }
+  .dispatch-top { padding: 14px 16px 10px; gap: 12px; }
+  .dispatch-brand { flex: 1 1 100%; }
+  .dispatch-top-right { width: 100%; gap: 8px; }
+  .dispatch-top-right .dispatch-clock { display: none; }
+  .dispatch-sync { flex: 1 1 100%; }
+  .dispatch-ghost, .dispatch-secondary, .dispatch-field input, .dispatch-field select, .dispatch-input { min-height: 44px; }
+  .dispatch-stats { gap: 6px; width: 100%; flex-wrap: nowrap; }
+  .dispatch-stat { flex: 1; min-width: 0; padding: 8px; gap: 5px; align-items: flex-start; flex-direction: column; }
+  .dispatch-stat strong { font-size: 20px; }
+  .dispatch-stat span { font-size: 10px; }
+  .dispatch-proto-bar { font-size: 10px; letter-spacing: 0; line-height: 1.5; align-items: flex-start; }
+  .dispatch-proto-bar svg { flex: none; margin-top: 2px; }
+  .dispatch-mobile-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); position: sticky; top: 0; z-index: 800; padding: 6px 10px; gap: 6px; border-bottom: 1px solid var(--d-line); background: #0c181efa; }
+  .dispatch-mobile-nav button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 48px; border: 1px solid transparent; border-radius: 8px; color: var(--d-muted); background: transparent; font-size: 12px; font-weight: 750; }
+  .dispatch-mobile-nav button[aria-pressed=true] { color: var(--d-text); border-color: #5b9ee6; background: var(--d-raised); }
+  .dispatch-mobile-nav button:focus-visible { outline: 3px solid #7fb8ff; outline-offset: 1px; }
+  .dispatch-grid > .dispatch-queue, .dispatch-grid > .dispatch-panel, .dispatch-grid > .dispatch-map { display: none; }
+  .dispatch-grid[data-mobile-view=signals] > .dispatch-queue { display: flex; }
+  .dispatch-grid[data-mobile-view=details] > .dispatch-panel { display: block; border-top: 0; }
+  .dispatch-grid[data-mobile-view=map] > .dispatch-map { display: block; height: max(380px, 62svh); }
+  .dispatch-queue .queue-list { max-height: none; }
+  .dispatch-grid { display: block; }
+  .dispatch-panel { overflow: visible; scroll-margin-top: 66px; }
+  .dispatch-inline > * { min-width: 0; }
+  .dispatch-login { padding: 24px 20px; }
+  .dispatch-login-shell { justify-content: flex-start; padding-top: max(32px, 10svh); }
+}
